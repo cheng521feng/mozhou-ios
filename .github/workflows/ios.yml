@@ -141,10 +141,10 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string 墨舟需要访问你电脑上的写作服务" "$PLIST" || true
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 墨舟" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string 墨舟" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.3" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.3" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 3" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 3" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.4" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.4" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 4" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 4" "$PLIST"
           plutil -p "$PLIST" | head -30
 
       - name: 同步资源
