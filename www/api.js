@@ -18,7 +18,7 @@
 
 window.MZ = (function () {
   const SVGNS = 'http://www.w3.org/2000/svg';
-  const VERSION = '1.3';
+  const VERSION = '1.4';
 
   /* ============================== 会话与地址 ============================== */
   const TOKEN_KEY = 'mz_token';
@@ -40,15 +40,78 @@ window.MZ = (function () {
 
   /* 装机版：云地址 + 会话口令。
      App 里的页面跑在 capacitor://localhost，属于跨域，所以接口都要用绝对地址
-     打到云服务器并带会话头。window.MZ_CLOUD 留给自己调试（本地假后端时设成空串）。 */
-  const CLOUD = (window.MZ_CLOUD !== undefined && window.MZ_CLOUD !== null)
-    ? String(window.MZ_CLOUD)
-    : 'https://47-101-72-16.sslip.io';
+     打到云服务器并带会话头。window.MZ_CLOUD 留给自己调试（本地假后端时设成空串）。
+
+     入口不止一个：域名入口带正规证书，但可能被云厂商以「未备案」为由拦掉
+     （HTTP 上是 403 拦截页，HTTPS 上直接 TLS 重置）；再留一个直连 IP 的 http
+     入口兜底。启动时探测一次，把能用的那个记在本地，之后一直用它；真发请求时
+     要是又断了，会自动重探、换一个入口重试一次。 */
+  const CLOUDS = (window.MZ_CLOUD !== undefined && window.MZ_CLOUD !== null)
+    ? (String(window.MZ_CLOUD) ? [String(window.MZ_CLOUD)] : [])
+    : ['https://47-101-72-16.sslip.io', 'http://47.101.72.16'];
+  const CLOUD_KEY = 'mz_cloud';
+  let CLOUD = '';
+  try { CLOUD = localStorage.getItem(CLOUD_KEY) || ''; } catch (e) { CLOUD = ''; }
+  if (CLOUD && CLOUDS.indexOf(CLOUD) < 0) CLOUD = '';   /* 入口名单变了就重探 */
+
+  /* 探测一个入口：能拿到网关的 JSON（哪怕只是「未登录」的 401）就算通；
+     云厂商的拦截页是 text/html，不算通。 */
+  function probeEntry(base) {
+    return new Promise(function (resolve) {
+      let done = false;
+      const fin = function (v) { if (!done) { done = true; resolve(v); } };
+      const to = setTimeout(function () { fin(false); }, 2600);
+      let p;
+      try {
+        p = fetch(base + '/api/live', {
+          method: 'GET', cache: 'no-store',
+          headers: { 'X-Mz-App': '1', 'Accept': 'application/json' },
+        });
+      } catch (e) { clearTimeout(to); fin(false); return; }
+      p.then(function (resp) {
+        clearTimeout(to);
+        const ct = (resp.headers.get('content-type') || '').toLowerCase();
+        fin(resp.status < 500 && ct.indexOf('json') >= 0);
+      }).catch(function () { clearTimeout(to); fin(false); });
+    });
+  }
+
+  let probing = null;
+  function pickCloud(force) {
+    if (CLOUD && !force) return Promise.resolve(CLOUD);
+    if (!CLOUDS.length) return Promise.resolve('');
+    if (probing) return probing;
+    const list = CLOUD
+      ? [CLOUD].concat(CLOUDS.filter(function (b) { return b !== CLOUD; }))
+      : CLOUDS.slice();
+    probing = Promise.all(list.map(probeEntry)).then(function (rs) {
+      probing = null;
+      let best = list[0];
+      for (let i = 0; i < list.length; i++) { if (rs[i]) { best = list[i]; break; } }
+      useCloud(best);          /* 记住这个入口，之后的请求直接用它，不再探测 */
+      return best;
+    }).catch(function () { probing = null; useCloud(list[0]); return list[0]; });
+    return probing;
+  }
+  function useCloud(base) {
+    if (!base || base === CLOUD) return CLOUD;
+    CLOUD = base;
+    try { localStorage.setItem(CLOUD_KEY, base); } catch (e) { /* 忽略 */ }
+    return CLOUD;
+  }
+  /* 云厂商的「未备案」拦截页：403 + html，且不是 JSON */
+  function blockedPage(resp) {
+    const ct = (resp.headers.get('content-type') || '').toLowerCase();
+    return resp.status === 403 && ct.indexOf('html') >= 0 && ct.indexOf('json') < 0;
+  }
   const SESS_KEY = 'mz_gw';
   let sess = '';
   try { sess = localStorage.getItem(SESS_KEY) || ''; } catch (e) { sess = ''; }
 
-  function url(p) { return (p && p.charAt(0) === '/') ? CLOUD + p : p; }
+  function url(p) {
+    if (!p || p.charAt(0) !== '/') return p;
+    return (CLOUD || CLOUDS[0] || '') + p;
+  }
   /* 图片标签发不出自定义请求头，改用 ?mz_sess= 会话参数 */
   function img(p) {
     if (!p) return p;
@@ -100,10 +163,24 @@ window.MZ = (function () {
 
     let resp;
     try {
+      if (!CLOUD && CLOUDS.length) await pickCloud(false);
       resp = await fetch(url(path), init);
+      if (!opts._retry && blockedPage(resp)) {
+        /* 域名被云厂商拦了（403 拦截页）：换入口再来一次 */
+        if (timer) clearTimeout(timer);
+        const nb = await pickCloud(true).catch(function () { return ''; });
+        useCloud(nb);
+        return req(path, Object.assign({}, opts, { _retry: true }));
+      }
     } catch (e) {
       if (timer) clearTimeout(timer);
       if (e && e.name === 'AbortError') throw new ApiError('超时：服务端 ' + Math.round(ms / 1000) + ' 秒内没有响应', -1);
+      /* 网络层失败：多半是入口域名被拦（TLS 被重置），换入口重试一次 */
+      if (!opts._retry && CLOUDS.length > 1) {
+        const nb2 = await pickCloud(true).catch(function () { return ''; });
+        useCloud(nb2);
+        if (nb2) return req(path, Object.assign({}, opts, { _retry: true }));
+      }
       MZ.online = false;
       throw new ApiError('连不上云端服务器，请检查手机网络后重试', -2);
     }
@@ -729,7 +806,9 @@ window.MZ = (function () {
     debounce: debounce, sleep: sleep, reduceMotion: reduceMotion,
     emptyBox: emptyBox, loadingBox: loadingBox, errBox: errBox,
     setToken: setToken, getToken: getToken,
-    url: url, img: img, authHeaders: authHeaders, setSession: setSession, logout: logout, CLOUD: CLOUD,
+    url: url, img: img, authHeaders: authHeaders, setSession: setSession, logout: logout,
+    clouds: CLOUDS.slice(), pickCloud: pickCloud, useCloud: useCloud,
+    get CLOUD() { return CLOUD || CLOUDS[0] || ''; },
     online: true,
   };
 })();
