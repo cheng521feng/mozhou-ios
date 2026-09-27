@@ -25,8 +25,8 @@
 <link rel="apple-touch-startup-image" href="splash/1125x2436.png" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3)" />
 <link rel="apple-touch-startup-image" href="splash/828x1792.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2)" />
 <link rel="apple-touch-startup-image" href="splash/750x1334.png" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2)" />
-<link rel="stylesheet" href="style.css?v=20260928a" />
-<link rel="stylesheet" href="fx.css?v=20260928a" />
+<link rel="stylesheet" href="style.css?v=20260928b" />
+<link rel="stylesheet" href="fx.css?v=20260928b" />
 </head>
 <body>
 <div class="aurora"></div>
@@ -84,6 +84,20 @@
   </nav>
 </div>
 
+<!-- 全局任务条：所有长操作（三模型评分 / 按建议重写 / 章节检查 / 续写补更）
+     的实时进度都画在这里。它是 body 级的 fixed 元素，切页、关写作台、重开 App 都不丢。 -->
+<div class="opsdock" id="opsDock" hidden>
+  <button class="od-top" type="button" id="odTop">
+    <span class="live-dot"></span>
+    <span class="od-title" id="odTitle">正在跑</span>
+    <span class="od-sub" id="odSub"></span>
+    <span class="od-pct" id="odPct">0%</span>
+    <span class="od-chev">&#8964;</span>
+  </button>
+  <div class="od-track"><i id="odFill"></i></div>
+  <div class="od-body" id="odBody" hidden></div>
+</div>
+
 <div class="mask hidden" id="maskSheet"><div class="sheet" id="sheetBox"></div></div>
 <div class="mask hidden" id="maskActions"><div class="actionsheet" id="actionsBox"></div></div>
 <div class="mask hidden modal-mask" id="maskModal"><div class="modalbox" id="modalBox"></div></div>
@@ -95,9 +109,9 @@
   <i id="splashMsg">正在连接…</i>
 </div>
 
-<script src="api.js?v=20260928a"></script>
-<script src="app.js?v=20260928a"></script>
-<script src="pages.js?v=20260928a"></script>
-<script src="editor.js?v=20260928a"></script>
+<script src="api.js?v=20260928b"></script>
+<script src="app.js?v=20260928b"></script>
+<script src="pages.js?v=20260928b"></script>
+<script src="editor.js?v=20260928b"></script>
 </body>
 </html>
