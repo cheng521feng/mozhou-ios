@@ -19,6 +19,7 @@ window.MZApp = (function () {
   const TAB_LABEL = { overview: '总览', books: '书架', write: '写作', jobs: '任务', me: '我的' };
   const state = {
     tab: 'overview',
+    liveJobs: [],
     stack: [],
     hero: null,
     novels: [],
@@ -162,10 +163,18 @@ window.MZApp = (function () {
       if (!(issues || []).length) l.appendChild(li({ title: '没有发现问题', sub: '可以先跑一次质检' }));
       return l;
     },
-    hitPanel(agg) {
+    hitPanel(agg, opts) {
       const box = h('div');
-      if (!agg) { box.appendChild(emptyBox('target', '还没有爆款评分', '点「评分本章」让三个模型打分（约 10~40 秒）')); return box; }
-      if (agg.ok === false) { box.appendChild(emptyBox('bolt', '评分失败', agg.msg || '模型没有返回可用结果')); return box; }
+      if (!agg) {
+        box.appendChild(emptyBox('target', '还没有爆款评分', '点「评分本章」让三个模型打分（约 10~40 秒）'));
+        if (opts && opts.actions) box.appendChild(h('div.mt12', null, opts.actions));
+        return box;
+      }
+      if (agg.ok === false) {
+        box.appendChild(emptyBox('bolt', '评分失败', agg.msg || '模型没有返回可用结果'));
+        if (opts && opts.actions) box.appendChild(h('div.mt12', null, opts.actions));
+        return box;
+      }
       box.appendChild(h('div.row', { style: { gap: '14px', alignItems: 'center' } },
         MZUI.ring(agg.hit_score, '爆款分'),
         h('div.flex1', null,
@@ -174,6 +183,7 @@ window.MZApp = (function () {
             chip('一致性 ' + (agg.agreement || 0) + '%', (agg.agreement >= 70 ? 'ok' : 'warn'), 'layers'),
             chip((agg.labels ? Object.keys(agg.labels).length : agg.count || 0) + ' 个模型', '', 'spark')),
           agg.verdict ? h('div.small.muted.mt8', { text: agg.verdict }) : null)));
+      if (opts && opts.actions) box.appendChild(h('div.mt12', null, opts.actions));
       if (agg.top_fix) {
         box.appendChild(h('div.card.tight.mt12', null,
           h('div.small', { style: { color: 'var(--accent)', fontWeight: '600' } }, '只改一处 → 最该改这里'),
@@ -224,6 +234,33 @@ window.MZApp = (function () {
       return box;
     },
   };
+
+  /* 把「三模型诊断」翻成一条能直接执行的改写指令。
+     只说 top_fix 太笼统，模型容易越改越平；这里把首要修改、拖后腿的维度、
+     各模型的看法和具体改法一起说清楚，并锁死「不许改剧情、不许变短」。 */
+  function hitFixInstruction(agg, retry) {
+    agg = agg || {};
+    const advs = (agg.issues || []).map(function (i) { return i.advice; }).filter(Boolean).slice(0, 4);
+    const weak = (agg.dims || []).filter(function (d) { return d.score !== null && d.score !== undefined && d.score < 62; })
+      .sort(function (a, b) { return (a.score - b.score) || ((b.weight || 0) - (a.weight || 0)); }).slice(0, 4)
+      .map(function (d) { return (d.name || d.key) + ' ' + d.score + ' 分'; });
+    const pm = Object.keys(agg.per_model || {}).map(function (k) {
+      const v = agg.per_model[k] || {};
+      const one = (v.issues || [])[0];
+      const t = (one && (one.problem || one.advice)) || v.top_fix || '';
+      return t ? (((agg.labels || {})[k] || k) + '：' + t) : '';
+    }).filter(Boolean).slice(0, 3);
+    return [
+      '只改这一段：剧情走向、人物关系、时间线都不能变，改完必须和前后文无缝衔接。',
+      agg.top_fix ? ('首要修改：' + agg.top_fix) : '',
+      weak.length ? ('这次评分里最拖后腿的是：' + weak.join('；') + '。请针对这几项把细节写实、把张力写出来，不要靠压字数省事。') : '',
+      pm.length ? ('各模型的看法：' + pm.join('；')) : '',
+      advs.length ? ('其他建议：' + advs.join('；')) : '',
+      retry ? '上一轮改完复评反而更低：这次把上面的建议逐条落到具体动作、对话和细节上，不要动剧情，也不要比原文短。' : '',
+      '硬性：改完字数不得少于原文、段落数不得减少，不要出现「然而/仿佛/不禁/缓缓/微微/瞬间」这类 AI 腔词。',
+    ].filter(Boolean).join(' ');
+  }
+
   /* ============================== 实时进度组件 ==============================
      数据来自 /api/live：
        live.running / job_title / pct / done / total / elapsed
@@ -753,6 +790,109 @@ window.MZApp = (function () {
     } catch (e) { toast(e.message, 'bad'); }
   }
 
+  /* ============================== 全局任务条（#opsDock） ==============================
+     服务端会给每个长操作登记一条 ops（第几步 / 什么阶段 / 已用时 / 模型排队），
+     这里把它画成挂在 body 上的 fixed 任务条。因为它不属于任何一屏的 DOM，
+     所以切标签页、翻页、开关写作台、甚至重开 App 都不会把进度弄丢。 */
+  let pendingOps = [];
+  let pendingSeq = 1;
+  function pending(label) {
+    const t = { id: pendingSeq++, label: label || '正在跑', t0: Date.now() };
+    pendingOps.push(t);
+    paintOps();
+    return t;
+  }
+  function pendingDone(t) {
+    if (!t) return;
+    pendingOps = pendingOps.filter(function (x) { return x.id !== t.id; });
+    paintOps();
+  }
+  function opsAll() {
+    const live = state.live || {};
+    const out = [];
+    Object.keys(live.ops || {}).forEach(function (k) {
+      const o = live.ops[k] || {};
+      out.push({
+        key: k, title: o.title || k, phase: o.phase || '', note: o.note || '',
+        pct: o.pct || 0, elapsed: o.elapsed || 0, steps: o.steps || [], step: o.step || 0,
+        finished: !!o.finished, ok: o.ok !== false, error: o.error || '',
+      });
+    });
+    (state.liveJobs || live.jobs || []).forEach(function (j) {
+      out.push({
+        key: 'job:' + j.id, title: j.title || j.kind || '任务', phase: j.message || j.status || '',
+        note: '', pct: j.total ? Math.round(((j.done || 0) * 100) / j.total) : 0, elapsed: 0,
+        steps: [], step: 0, finished: false, ok: true, error: '',
+      });
+    });
+    if (live.running && !out.length) {
+      out.push({
+        key: 'main', title: live.job_title || '正在生成', phase: phaseLine(live), note: '',
+        pct: live.pct || 0, elapsed: live.elapsed || 0, steps: [], step: 0,
+        finished: false, ok: true, error: '',
+      });
+    }
+    if (!Object.keys(live.ops || {}).length) {
+      const now = Date.now();
+      pendingOps.forEach(function (t) {
+        if (now - t.t0 > 8000) return;
+        out.push({
+          key: 'pending:' + t.id, title: t.label, phase: '已发出，正在排队…', note: '',
+          pct: 3, elapsed: Math.round((now - t.t0) / 1000), steps: [], step: 0,
+          finished: false, ok: true, error: '',
+        });
+      });
+    }
+    return out;
+  }
+  function opsRowNode(o) {
+    const cls = o.finished ? (o.ok ? 'ok' : 'bad') : 'run';
+    const stepTxt = (o.steps && o.steps.length)
+      ? ('第 ' + Math.min((o.step || 0) + 1, o.steps.length) + '/' + o.steps.length + ' 步') : '';
+    const bits = [o.phase, stepTxt].filter(Boolean).join(' · ');
+    const row = h('div.od-row.' + cls);
+    row.appendChild(h('div.od-r1', null,
+      h('span.od-ic', { text: o.finished ? (o.ok ? '\u2713' : '!') : '\u25cf' }),
+      h('b.od-t', { text: o.title || '' }),
+      h('span.sp'),
+      h('span.dim.small', { text: o.elapsed ? fmtDur(o.elapsed) : '' })));
+    row.appendChild(barOf(o.pct || 0, cls === 'bad' ? 'bad' : ''));
+    if (bits || o.note || o.error) {
+      row.appendChild(h('div.od-s', { text: [bits || '正在准备\u2026', o.note, o.error ? String(o.error).slice(0, 90) : ''].filter(Boolean).join(' · ') }));
+    }
+    if (o.steps && o.steps.length) row.appendChild(stepsNode(o.steps, o.step, ''));
+    return row;
+  }
+  function paintOps() {
+    const dock = $('#opsDock');
+    if (!dock) return;
+    const list = opsAll();
+    if (!list.length) {
+      dock.hidden = true;
+      dock.classList.remove('on');
+      const b0 = $('#odBody');
+      if (b0) { b0.hidden = true; clear(b0); }
+      const t0 = $('#odTitle'), s0 = $('#odSub'), p0 = $('#odPct'), f0 = $('#odFill');
+      if (t0) t0.textContent = '';
+      if (s0) s0.textContent = '';
+      if (p0) p0.textContent = '0%';
+      if (f0) f0.style.width = '0%';
+      return;
+    }
+    const running = list.filter(function (o) { return !o.finished; });
+    const head = running[0] || list[0];
+    const t = $('#odTitle'), sub = $('#odSub'), pct = $('#odPct'), fill = $('#odFill'), body = $('#odBody');
+    dock.hidden = false;
+    if (t) t.textContent = running.length > 1 ? ('正在跑 ' + running.length + ' 项') : (head.title || '正在跑');
+    if (sub) sub.textContent = head.phase || head.note || '正在准备\u2026';
+    if (pct) pct.textContent = Math.round(head.pct || 0) + '%';
+    if (fill) fill.style.width = Math.max(2, Math.min(100, head.pct || 0)) + '%';
+    if (body && !body.hidden) {
+      clear(body);
+      list.forEach(function (o) { body.appendChild(opsRowNode(o)); });
+    }
+  }
+
   /* ============================== 活数据 ============================== */
   function paintDock() {
     const dock = $('#islandDock');
@@ -779,9 +919,13 @@ window.MZApp = (function () {
   async function refreshLive() {
     try {
       const d = await api.get('/api/live', { timeout: 20000 });
-      state.live = d;
-      paintDock(); paintBadge();
-      return d;
+      /* 后端把实时状态包在 live 里（{ok, live:{...}, jobs:[...]}）；
+         早先直接赋值给 state.live，于是 ops / running 全是 undefined——
+         表现就是「轮询一刷新，进度条就没了」。这里必须拆包。 */
+      state.live = (d && d.live) ? d.live : (d || {});
+      state.liveJobs = (d && d.jobs) || [];
+      paintDock(); paintBadge(); paintOps();
+      return state.live;
     } catch (e) { paintDock(); return null; }
   }
   async function refreshAll(showToast) {
@@ -903,14 +1047,17 @@ window.MZApp = (function () {
       el.appendChild(brand(38));
     });
   }
+  function pollLive(delay) {
+    liveTimer = setTimeout(async function () {
+      if (document.hidden) { pollLive(4000); return; }
+      await refreshLive();
+      if (state.tab === 'jobs' || (state.tab === 'overview' && liveBusy(state.live))) render();
+      pollLive(liveBusy(state.live) ? 1600 : 4000);
+    }, delay);
+  }
   function startTimer() {
-    if (liveTimer) clearInterval(liveTimer);
-    liveTimer = setInterval(function () {
-      if (document.hidden) return;
-      refreshLive().then(function () {
-        if (state.tab === 'jobs' || (state.tab === 'overview' && liveBusy(state.live))) render();
-      });
-    }, 3000);
+    if (liveTimer) { clearTimeout(liveTimer); clearInterval(liveTimer); }
+    pollLive(900);
   }
   function hideSplash() {
     const s = $('#splash');
@@ -926,6 +1073,15 @@ window.MZApp = (function () {
     if (nb) nb.addEventListener('click', function () { haptic('light'); pop(); });
     const dock = $('#islandDock');
     if (dock) dock.addEventListener('click', function () { haptic('light'); switchTab('jobs'); });
+    const od = $('#opsDock'), odTop = $('#odTop'), odBody = $('#odBody');
+    if (odTop && odBody) {
+      odTop.addEventListener('click', function () {
+        haptic('light');
+        odBody.hidden = !odBody.hidden;
+        od.classList.toggle('on', !odBody.hidden);
+        paintOps();
+      });
+    }
     applyTheme(localStorage.getItem('mz_theme') || 'dark');
 
     if (!hasAuth()) { showLogin(); hideSplash(); return; }
@@ -970,6 +1126,8 @@ window.MZApp = (function () {
     runDaily: runDaily, stopAll: stopAll, stagger: stagger, topline: topline,
     askUpdate: askUpdate, askRewrite: askRewrite, bookHitReview: bookHitReview,
     liveBusy: liveBusy, phaseLine: phaseLine, emptyBox: emptyBox, loadingBox: loadingBox, errBox: errBox,
+    pending: pending, pendingDone: pendingDone, paintOps: paintOps, opsAll: opsAll,
+    hitFixInstruction: hitFixInstruction,
     _btn: function (label, tone, onTap, size) {
       const b = h('button.btn' + (tone ? '.' + tone : '') + (size === 'sm' ? '.sm' : ''), { type: 'button', text: label });
       b.addEventListener('click', function () { haptic('light'); onTap(); });
