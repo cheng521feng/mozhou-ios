@@ -213,6 +213,35 @@ window.MZ = (function () {
     put: function (p, b, o) { return req(p, Object.assign({ method: 'PUT', body: b || {} }, o)); },
     del: function (p, o) { return req(p, Object.assign({ method: 'DELETE' }, o)); },
   };
+  /* 登录：走同一套「入口自动切换」。登录页在没会话时就得能进，
+     所以这里不能借 req()（req 会把 401 当成会话过期回登录页），单独实现一份。
+     返回 {resp, data}；网络层失败会自动换入口重试一次。 */
+  async function login(phone, password) {
+    const payload = JSON.stringify({
+      phone: String(phone || '').replace(/\s+/g, ''),
+      password: String(password || ''),
+    });
+    const send = function () {
+      return fetch(url('/api/mz/login'), {
+        method: 'POST', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json', 'X-Mz-App': '1' },
+        body: payload,
+      });
+    };
+    if (!CLOUD && CLOUDS.length) await pickCloud(false);
+    let resp;
+    try {
+      resp = await send();
+      if (blockedPage(resp)) throw new Error('blocked');
+    } catch (e) {
+      const nb = await pickCloud(true).catch(function () { return ''; });
+      useCloud(nb);
+      resp = await send();
+    }
+    let data = null;
+    try { data = await resp.json(); } catch (e2) { data = null; }
+    return { resp: resp, data: data };
+  }
 
   /* ============================== hyperscript ============================== */
   function h(tag, attrs) {
@@ -805,7 +834,7 @@ window.MZ = (function () {
     fmtNum: fmtNum, fmtWords: fmtWords, fmtDur: fmtDur, fmtDate: fmtDate, timeAgo: timeAgo,
     debounce: debounce, sleep: sleep, reduceMotion: reduceMotion,
     emptyBox: emptyBox, loadingBox: loadingBox, errBox: errBox,
-    setToken: setToken, getToken: getToken,
+    setToken: setToken, getToken: getToken, login: login,
     url: url, img: img, authHeaders: authHeaders, setSession: setSession, logout: logout,
     clouds: CLOUDS.slice(), pickCloud: pickCloud, useCloud: useCloud,
     get CLOUD() { return CLOUD || CLOUDS[0] || ''; },
