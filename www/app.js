@@ -982,13 +982,9 @@ window.MZApp = (function () {
     if (btn) { btn.disabled = true; btn.textContent = '登录中…'; }
     if (hint) hint.hidden = true;
     try {
-      const r = await fetch(MZ.url('/api/mz/login'), {
-        method: 'POST', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: String(phone).replace(/\s+/g, ''), password: String(password) }),
-      });
-      let d = null;
-      try { d = await r.json(); } catch (e) { d = null; }
+      /* 登录也走「入口自动切换」：域名入口被云厂商拦掉时会换备用入口重试 */
+      const rp = await MZ.login(phone, password);
+      const r = rp.resp; const d = rp.data;
       if (r.ok && d && d.ok && d.token) {
         MZ.setSession(d.token);
         showApp();
