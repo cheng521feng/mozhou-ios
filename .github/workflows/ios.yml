@@ -144,8 +144,10 @@ jobs:
         run: |
           set -eo pipefail
           cd ios/App
-          xcodebuild \
-            -workspace App.xcworkspace \
+          # Capacitor 7 用 Swift Package Manager，不生成 .xcworkspace，两种都要能编
+          if [ -d App.xcworkspace ]; then P="-workspace App.xcworkspace"; else P="-project App.xcodeproj"; fi
+          echo "xcodebuild $P"
+          xcodebuild $P \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
