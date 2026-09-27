@@ -1,0 +1,178 @@
+name: 打包 iOS App (.ipa)
+
+# 用法：仓库里点 Actions -> 左边选「打包 iOS App (.ipa)」-> Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: "墨舟云服务器地址（HTTPS 隧道地址，换地址了就在这改）"
+        required: true
+        default: "https://surrounded-enormous-mailing-scott.trycloudflare.com/m/"
+      bundle_id:
+        description: "App 唯一标识，装不上就换一个（例如 com.你的名字.mozhou）"
+        required: true
+        default: "com.mozhou.writer"
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    env:
+      PKG_JSON: |
+        {
+          "name": "mozhou-ios",
+          "version": "1.0.0",
+          "private": true,
+          "dependencies": {
+            "@capacitor/core": "latest",
+            "@capacitor/ios": "latest"
+          },
+          "devDependencies": {
+            "@capacitor/cli": "latest"
+          }
+        }
+      CAP_JSON: |
+        {
+          "appId": "__BUNDLE_ID__",
+          "appName": "墨舟",
+          "webDir": "www",
+          "server": {
+            "url": "__SERVER_URL__",
+            "cleartext": true,
+            "allowNavigation": ["*"]
+          },
+          "ios": {
+            "contentInset": "always",
+            "backgroundColor": "#0d1118"
+          }
+        }
+      FALLBACK_HTML: |
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head><meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+        <title>墨舟</title></head>
+        <body style="margin:0;background:#0d1118;color:#e9eff8;
+          font:16px -apple-system,'PingFang SC',sans-serif;
+          display:flex;align-items:center;justify-content:center;height:100vh;text-align:center">
+        <div>
+          <p style="font-size:20px;font-weight:600">连不上墨舟服务</p>
+          <p style="color:#8b9ab0;font-size:14px;line-height:1.8">
+            墨舟跑在云服务器上，请检查手机网络后重试。<br>不需要和电脑连同一个 Wi-Fi，也不用开电脑。
+          </p>
+        </div>
+        </body></html>
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 环境信息
+        run: |
+          xcodebuild -version
+          node -v
+          npm -v
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: 生成壳工程文件
+        run: |
+          set -e
+          mkdir -p www
+          printf '%s\n' "$PKG_JSON" > package.json
+          printf '%s\n' "$FALLBACK_HTML" > www/index.html
+          # 地址里万一有 & 或 | 会破坏 sed 的替换，先转义（正常局域网地址用不到，兜个底）
+          SURL=$(printf '%s' "$INPUT_SERVER_URL" | sed -e 's/[&|]/\\&/g')
+          BID=$(printf '%s' "$INPUT_BUNDLE_ID" | sed -e 's/[&|]/\\&/g')
+          printf '%s\n' "$CAP_JSON" \
+            | sed -e "s|__BUNDLE_ID__|$BID|" \
+                  -e "s|__SERVER_URL__|$SURL|" > capacitor.config.json
+          echo "=== capacitor.config.json ==="
+          cat capacitor.config.json
+        env:
+          INPUT_BUNDLE_ID: ${{ inputs.bundle_id }}
+          INPUT_SERVER_URL: ${{ inputs.server_url }}
+
+      - name: 安装依赖
+        run: npm install --no-audit --no-fund
+
+      - name: 生成 iOS 工程
+        run: |
+          set -e
+          # 第一次失败多半是 CocoaPods 没装好，装上再试一次
+          if ! npx cap add ios; then
+            echo "首次失败，尝试补装 CocoaPods 后重试"
+            rm -rf ios
+            sudo gem install cocoapods --no-document || true
+            npx cap add ios
+          fi
+
+      - name: 换图标与启动图（仓库里传了才换）
+        run: |
+          set -e
+          if [ -f icon-1024.png ]; then
+            f=$(find ios -name 'AppIcon-512@2x.png' | head -1)
+            echo "图标 -> $f"
+            cp icon-1024.png "$f"
+          else
+            echo "没传 icon-1024.png，用默认图标"
+          fi
+          if [ -f splash-2732x2732.png ]; then
+            for f in $(find ios -path '*Splash.imageset*' -name '*.png'); do
+              echo "启动图 -> $f"
+              cp splash-2732x2732.png "$f"
+            done
+          fi
+
+      - name: 允许局域网 http + 设置 App 名字
+        run: |
+          set -e
+          PLIST=ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Set :NSAppTransportSecurity:NSAllowsArbitraryLoads true" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string 墨舟需要访问你电脑上的写作服务" "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 墨舟" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string 墨舟" "$PLIST"
+          plutil -p "$PLIST" | head -30
+
+      - name: 同步资源
+        run: npx cap sync ios
+
+      - name: 编译（不签名）
+        run: |
+          set -eo pipefail
+          cd ios/App
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build > /tmp/xc.log 2>&1 || { echo "===== 编译失败，最后 200 行 ====="; tail -200 /tmp/xc.log; exit 1; }
+          echo "===== 编译成功，最后 25 行 ====="
+          tail -25 /tmp/xc.log
+
+      - name: 打成 .ipa
+        run: |
+          set -e
+          APP=$(find ios/App/build -maxdepth 6 -type d -name 'App.app' | head -1)
+          echo "产物目录: $APP"
+          test -n "$APP"
+          rm -rf out && mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          (cd out && zip -qry ../MoZhou-unsigned.ipa Payload)
+          ls -lh MoZhou-unsigned.ipa
+          shasum -a 256 MoZhou-unsigned.ipa
+
+      - name: 上传 .ipa（在页面下面的 Artifacts 里下载）
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoZhou-unsigned-ipa
+          path: MoZhou-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
