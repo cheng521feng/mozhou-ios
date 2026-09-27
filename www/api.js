@@ -600,6 +600,34 @@ window.MZ = (function () {
     setTimeout(function () { if (ink.parentNode) ink.parentNode.removeChild(ink); }, 620);
   }
 
+  /* 复制到剪贴板。iOS 装机版（WKWebView）里 navigator.clipboard 经常被拒，
+     所以永远留一条 execCommand 的兜底，返回 Promise<boolean>。 */
+  function legacyCopy(t) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = t;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { ta.setSelectionRange(0, t.length); } catch (e) { /* 忽略 */ }
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (e) { return false; }
+  }
+  function clipboard(text) {
+    const t = (text === null || text === undefined) ? '' : String(text);
+    if (!t) return Promise.resolve(false);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(t).then(function () { return true; })
+        .catch(function () { return legacyCopy(t); });
+    }
+    return Promise.resolve(legacyCopy(t));
+  }
+
   function skeleton(rows) {
     const box = h('div.skel-card');
     for (let i = 0; i < (rows || 3); i++) box.appendChild(h('div.skel-line'));
@@ -695,7 +723,7 @@ window.MZ = (function () {
     h: h, frag: frag, add: add, clear: clear, $: $, $$: $$,
     icon: icon, brand: brand, ICONS: ICONS,
     haptic: haptic, toast: toast, sheet: sheet, actions: actions, modal: modal, confirm: confirm,
-    attachPull: attachPull, ripple: ripple, skeleton: skeleton,
+    attachPull: attachPull, ripple: ripple, skeleton: skeleton, clipboard: clipboard,
     ring: ring, bar: bar, chip: chip, countNode: countNode, countUp: countUp,
     fmtNum: fmtNum, fmtWords: fmtWords, fmtDur: fmtDur, fmtDate: fmtDate, timeAgo: timeAgo,
     debounce: debounce, sleep: sleep, reduceMotion: reduceMotion,
