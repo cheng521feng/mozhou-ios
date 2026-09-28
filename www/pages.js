@@ -324,10 +324,11 @@
       const r = await fetch(MZ.url('/api/novel/' + n.id + '/export?fmt=txt'),
         { headers: Object.assign({}, MZ.authHeaders(), MZ.getToken() ? { 'X-Mozhou-Token': MZ.getToken() } : {}) });
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      const blob = await r.blob();
-      const a = h('a', { href: URL.createObjectURL(blob), download: (n.title || 'novel') + '.txt' });
-      document.body.appendChild(a); a.click(); a.remove();
-      toast('已下载', 'ok');
+      const text = await r.text();
+      const res = await MZ.saveText((n.title || 'novel') + '.txt', text);
+      toast(res && res.native
+        ? '已存到「文件」App → 我的 iPhone → 墨舟'
+        : '已开始下载', 'ok');
     } catch (e) { toast('导出失败：' + e.message, 'bad'); }
   }
   /* ============================== 回收站 ==============================
