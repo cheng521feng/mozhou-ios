@@ -1455,8 +1455,141 @@ window.MZApp = (function () {
       const el = $(sel);
       if (el) el.addEventListener('input', function () { const e = $('#loginErr'); if (e) e.hidden = true; });
     });
+    const reg = $('#loginReg');
+    if (reg) reg.addEventListener('click', function () {
+      haptic('light');
+      const e = $('#loginErr'); if (e) e.hidden = true;
+      showRegister();
+    });
     bindEye();
   }
+
+
+  /* ============================== 手机号注册 ==============================
+     登录卡下面点「没有账号？用手机号注册」进这里：手机号 → 短信验证码 → 设密码。
+     验证码走服务器短信接口；测试模式下服务器会把验证码回显（debug_code），这里直接帮用户填上。 */
+  function showRegister() {
+    let timer = null;
+    const mkInp = function (opt) {
+      return h('input.inp', {
+        type: opt.type || 'text', placeholder: opt.ph || '',
+        inputmode: opt.inputmode || 'text', maxlength: opt.maxlength || '',
+        autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false',
+        autocomplete: opt.ac || 'off',
+      });
+    };
+    const phoneInp = mkInp({ ph: '11 位手机号', inputmode: 'numeric', maxlength: '11', ac: 'tel' });
+    const codeInp = mkInp({ ph: '6 位数字', inputmode: 'numeric', maxlength: '6', ac: 'one-time-code' });
+    const pwInp = mkInp({ ph: '至少 6 位', type: 'password', ac: 'new-password' });
+    const pw2Inp = mkInp({ ph: '再输一遍', type: 'password', ac: 'new-password' });
+
+    /* 密码眼睛：和登录页一样，怕输错就点开看一眼 */
+    const eye = h('button.eye', { type: 'button', 'aria-label': '显示密码', title: '显示密码', html: EYE_SVG });
+    eye.addEventListener('click', function () {
+      const show = pwInp.type === 'password';
+      pwInp.type = show ? 'text' : 'password';
+      eye.innerHTML = show ? OFF_SVG : EYE_SVG;
+      eye.className = 'eye' + (show ? ' on' : '');
+    });
+
+    const fPhone = h('div.fld', null, h('label', { text: '手机号' }), phoneInp);
+    const capTip = h('div.fld-hint');
+    const getBtn = h('button.btn.sm', { type: 'button', text: '获取验证码' });
+    const fCode = h('div.fld', null, h('label', { text: '短信验证码' }),
+      h('div.reg-cap', null, codeInp, getBtn));
+    const fPw = h('div.fld', null, h('label', { text: '设置密码' }), h('div.pw', null, pwInp, eye));
+    const fPw2 = h('div.fld', null, h('label', { text: '再输一遍密码' }), pw2Inp);
+
+    getBtn.addEventListener('click', async function () {
+      const ph = String(phoneInp.value || '').trim();
+      if (!/^1\d{10}$/.test(ph)) { toast('手机号看起来不对（要 11 位）', 'bad'); return; }
+      getBtn.disabled = true;
+      getBtn.textContent = '发送中…';
+      let d = null;
+      try {
+        const rp = await MZ.sms(ph);
+        d = rp.data || {};
+        if (!rp.resp.ok || d.ok === false) throw new Error(d.msg || d.error || '发送失败');
+      } catch (e) {
+        getBtn.disabled = false;
+        getBtn.textContent = '获取验证码';
+        toast((e && e.message) || '发送失败', 'bad');
+        return;
+      }
+      if (d && d.debug_code) {
+        capTip.textContent = '测试模式：验证码是 ' + d.debug_code + '（已帮你填上）';
+        codeInp.value = d.debug_code;
+      } else {
+        capTip.textContent = (d && d.msg) || '验证码已发出，5 分钟内有效';
+      }
+      let n = 60;
+      getBtn.textContent = n + ' 秒后重发';
+      timer = setInterval(function () {
+        n -= 1;
+        if (n <= 0) {
+          clearInterval(timer); timer = null;
+          getBtn.disabled = false;
+          getBtn.textContent = '重新获取';
+        } else getBtn.textContent = n + ' 秒后重发';
+      }, 1000);
+    });
+
+    const goBtn = h('button.btn.primary', { type: 'button', text: '注册并进入' });
+    goBtn.addEventListener('click', async function () {
+      const ph = String(phoneInp.value || '').trim();
+      const code = String(codeInp.value || '').trim();
+      const pw = String(pwInp.value || ''), pw2 = String(pw2Inp.value || '');
+      if (!/^1\d{10}$/.test(ph)) { toast('手机号要 11 位，别漏了', 'bad'); return; }
+      if (!code) { toast('先填短信验证码', 'bad'); return; }
+      if (pw.length < 6) { toast('密码至少 6 位', 'bad'); return; }
+      if (pw !== pw2) { toast('两次密码不一样', 'bad'); return; }
+      goBtn.disabled = true;
+      goBtn.textContent = '注册中…';
+      let d = null;
+      try {
+        const rp = await MZ.register(ph, code, pw);
+        d = rp.data || {};
+        if (!rp.resp.ok || !d.ok) throw new Error(d.msg || d.error || '注册失败');
+      } catch (e) {
+        goBtn.disabled = false;
+        goBtn.textContent = '注册并进入';
+        toast((e && e.message) || '注册失败', 'bad');
+        return;
+      }
+      if (timer) { clearInterval(timer); timer = null; }
+      MZ.setSession(d.token || '');
+      state.profile = {
+        name: d.name || '', username: d.username || '', gender: d.gender || '',
+        age: d.age || '', avatar: !!d.avatar, avatar_url: d.avatar_url || '',
+        welcome: !!d.first_time,
+      };
+      if (regCtl) regCtl.close();
+      haptic('success');
+      toast('注册成功，欢迎你', 'ok');
+      enterApp(true);
+    });
+
+    const rows = h('div');
+    rows.appendChild(h('div.fld-hint', { text: '填手机号 → 收短信验证码 → 设个密码，就成了。新账号已经预置好模型 API Key，登进去就能开写。' }));
+    rows.appendChild(fPhone);
+    rows.appendChild(fCode);
+    rows.appendChild(capTip);
+    rows.appendChild(fPw);
+    rows.appendChild(fPw2);
+    const btns = h('div.btn-row');
+    btns.appendChild(goBtn);
+    const cancel = h('button.btn', { type: 'button', text: '还是去登录' });
+    cancel.addEventListener('click', function () { haptic('light'); if (regCtl) regCtl.close(); });
+    btns.appendChild(cancel);
+    rows.appendChild(btns);
+
+    regCtl = sheet({
+      title: '手机号注册',
+      node: rows,
+      onClose: function () { if (timer) { clearInterval(timer); timer = null; } },
+    });
+  }
+  let regCtl = null;
 
   /* 密码眼睛：点一下在「•••」和明文之间切换，防止输错 */
   function bindEye() {
@@ -1695,7 +1828,7 @@ window.MZApp = (function () {
     loadProfile: loadProfile,
     findNovel: findNovel, openBook: openBook, openTokenDialog: openTokenDialog,
     applyTheme: applyTheme, getTheme: getTheme, themePref: themePref, isLightTheme: isLightTheme,
-    showLogin: showLogin, doLogin: doLogin,
+    showLogin: showLogin, doLogin: doLogin, showRegister: showRegister,
     pick: pick, li: li, card: card, kpi: kpi, buttons: buttons, seg: seg, bar: barOf,
     span: span, txt: txt, busySheet: busySheet, startJob: startJob, newNovel: newNovel,
     newNovelMenu: newNovelMenu, importNovel: importNovel, removeNovels: removeNovels, exportNovel: exportNovel,
