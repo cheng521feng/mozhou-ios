@@ -38,8 +38,8 @@
 <link rel="apple-touch-startup-image" href="splash/1125x2436.png" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3)" />
 <link rel="apple-touch-startup-image" href="splash/828x1792.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2)" />
 <link rel="apple-touch-startup-image" href="splash/750x1334.png" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2)" />
-<link rel="stylesheet" href="style.css?v=20260928h" />
-<link rel="stylesheet" href="fx.css?v=20260928h" />
+<link rel="stylesheet" href="style.css?v=20260928i" />
+<link rel="stylesheet" href="fx.css?v=20260928i" />
 </head>
 <body>
 <div class="aurora"></div>
@@ -59,9 +59,12 @@
              placeholder="用户名或手机号" enterkeyhint="next" />
     </div>
     <div class="login-field">
-      <label for="lgPass">密码</label>
-      <input id="lgPass" name="password" type="password" autocomplete="current-password"
-             placeholder="登录密码" enterkeyhint="go" />
+      <label for="lgPass">密码<span class="hint">点右边眼睛可显示</span></label>
+      <div class="pw">
+        <input id="lgPass" name="password" type="password" autocomplete="current-password"
+               placeholder="登录密码" enterkeyhint="go" />
+        <button type="button" class="eye" id="lgEye" aria-label="显示密码" title="显示密码"></button>
+      </div>
     </div>
     <button class="btn primary" type="submit" id="loginGo">登录并同步</button>
     <div class="footnote txt-c">数据按账号独立存放，手机和电脑登录同一账号即是同一份稿子。</div>
@@ -123,10 +126,22 @@
   <i id="splashMsg">正在连接…</i>
 </div>
 
-<script src="api.js?v=20260928h"></script>
-<script src="app.js?v=20260928h"></script>
-<script src="pages.js?v=20260928h"></script>
-<script src="editor.js?v=20260928h"></script>
-<script src="book.js?v=20260928h"></script>
+<!-- 开屏欢迎页：登录成功后先露一下脸（头像 + 名字 + 一句欢迎），点一下或几秒后自动进主页 -->
+<div class="welcome" id="welcome" hidden>
+  <div class="wc-card">
+    <div class="wc-av" id="wcAv"></div>
+    <div class="wc-hi" id="wcHi">欢迎回来</div>
+    <div class="wc-name" id="wcName"></div>
+    <div class="wc-line"></div>
+    <div class="wc-sub" id="wcSub">正在载入你的书稿…</div>
+  </div>
+  <div class="wc-tip">点一下直接进入</div>
+</div>
+
+<script src="api.js?v=20260928i"></script>
+<script src="app.js?v=20260928i"></script>
+<script src="pages.js?v=20260928i"></script>
+<script src="editor.js?v=20260928i"></script>
+<script src="book.js?v=20260928i"></script>
 </body>
 </html>
