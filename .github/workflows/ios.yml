@@ -25,7 +25,9 @@ jobs:
           "private": true,
           "dependencies": {
             "@capacitor/core": "latest",
-            "@capacitor/ios": "latest"
+            "@capacitor/ios": "latest",
+            "@capacitor/filesystem": "latest",
+            "@capacitor/share": "latest"
           },
           "devDependencies": {
             "@capacitor/cli": "latest"
@@ -141,10 +143,15 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string 墨舟需要访问你电脑上的写作服务" "$PLIST" || true
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 墨舟" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string 墨舟" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.0" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 2.0" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 10" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 10" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.1" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 2.1" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 11" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 11" "$PLIST"
+          # 导出 txt：写完文件要能在「文件」App 里看到（我的 iPhone → 墨舟）
+          /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" "$PLIST"
           plutil -p "$PLIST" | head -30
 
       - name: 同步资源
