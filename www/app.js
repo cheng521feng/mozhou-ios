@@ -22,6 +22,7 @@ window.MZApp = (function () {
     liveJobs: [],
     stack: [],
     hero: null,
+    profile: null,
     novels: [],
     live: null,
     version: '',
@@ -503,6 +504,14 @@ window.MZApp = (function () {
     return state.hero;
   }
   async function ensureHero() { if (!state.hydrated) await loadHero(); return state.hero; }
+  /* 个人资料（用户名/性别/年龄/头像）。读不到不影响主流程，只是"我的"页少张卡。 */
+  async function loadProfile() {
+    try {
+      const r = await api.get('/api/mz/profile');
+      state.profile = (r && r.profile) || {};
+    } catch (e) { /* 资料读不到不影响用 */ }
+    return state.profile;
+  }
   function findNovel(nid) { return state.novels.filter(function (n) { return n.id === nid; })[0] || null; }
   function planNeed(n) {
     const p = n.plan || {};
@@ -1246,6 +1255,7 @@ window.MZApp = (function () {
   async function refreshAll(showToast) {
     try { await loadHero(); } catch (e) { if (showToast) toast(e.message, 'bad'); }
     await refreshLive();
+    await loadProfile();
     await render();
     if (showToast) toast('已刷新', 'ok');
   }
@@ -1292,24 +1302,33 @@ window.MZApp = (function () {
     if (app) app.hidden = false;
     state.authed = true;
   }
-  async function doLogin(phone, password) {
+  async function doLogin(user, password) {
     const btn = $('#loginGo'), hint = $('#loginErr');
     if (btn) { btn.disabled = true; btn.textContent = '登录中…'; }
     if (hint) hint.hidden = true;
     try {
       /* 登录也走「入口自动切换」：域名入口被云厂商拦掉时会换备用入口重试 */
-      const rp = await MZ.login(phone, password);
+      const rp = await MZ.login(user, password);
       const r = rp.resp; const d = rp.data;
       if (r.ok && d && d.ok && d.token) {
         MZ.setSession(d.token);
+        /* 登录响应里就带着资料，先摆上，免得"我的"页先空一下 */
+        state.profile = {
+          name: d.name || '', username: d.username || '', gender: d.gender || '',
+          age: d.age || '', avatar: !!d.avatar, avatar_url: d.avatar_url || '',
+          welcome: !!d.welcome, masked: d.masked || '', phone: d.phone || '',
+        };
         showApp();
         await refreshAll(false);
         startTimer();
+        if (state.profile.name) {
+          toast((state.profile.welcome ? '欢迎你，' : '欢迎回来，') + state.profile.name, 'ok');
+        }
         return true;
       }
-      throw new Error((d && (d.error || d.msg)) || '登录失败，请检查手机号和密码');
+      throw new Error((d && (d.error || d.msg)) || '登录失败，请检查用户名和密码');
     } catch (e) {
-      if (hint) { hint.hidden = false; hint.textContent = e.message || '连不上云端服务器，请检查网络后重试'; }
+      if (hint) { hint.hidden = false; hint.textContent = e.message || '连不上服务器，请检查网络后重试'; }
       return false;
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = '登录并同步'; }
@@ -1320,16 +1339,16 @@ window.MZApp = (function () {
     if (!f) return;
     f.addEventListener('submit', function (ev) {
       ev.preventDefault();
-      const p = ($('#lgPhone') || {}).value || '';
+      const p = ($('#lgUser') || {}).value || '';
       const w = ($('#lgPass') || {}).value || '';
       if (!p.trim() || !w) {
         const e = $('#loginErr');
-        if (e) { e.hidden = false; e.textContent = '请填写手机号和密码'; }
+        if (e) { e.hidden = false; e.textContent = '请填写用户名和密码'; }
         return;
       }
       doLogin(p, w);
     });
-    ['#lgPhone', '#lgPass'].forEach(function (sel) {
+    ['#lgUser', '#lgPass'].forEach(function (sel) {
       const el = $(sel);
       if (el) el.addEventListener('input', function () { const e = $('#loginErr'); if (e) e.hidden = true; });
     });
@@ -1482,6 +1501,7 @@ window.MZApp = (function () {
     state: state, screens: screens, MZUI: MZUI,
     render: render, push: push, pop: pop, switchTab: switchTab, go: go,
     loadHero: loadHero, ensureHero: ensureHero, refreshAll: refreshAll, refreshLive: refreshLive,
+    loadProfile: loadProfile,
     findNovel: findNovel, openBook: openBook, openTokenDialog: openTokenDialog,
     applyTheme: applyTheme, getTheme: getTheme, themePref: themePref, isLightTheme: isLightTheme,
     showLogin: showLogin, doLogin: doLogin,
