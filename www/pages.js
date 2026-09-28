@@ -570,7 +570,7 @@
   function profileCard() {
     const p = A.state.profile || {};
     const name = p.name || '我';
-    const info = [p.gender, p.age ? p.age + ' 岁' : ''].filter(function (x) { return x; }).join(' · ');
+    const info = [p.pen_name ? ('笔名 ' + p.pen_name) : '', p.gender, p.age ? p.age + ' 岁' : ''].filter(function (x) { return x; }).join(' · ');
     const c = h('div.card');
     const edit = h('button.btn.ghost.sm', { type: 'button', text: '编辑资料' });
     edit.addEventListener('click', function () { haptic('light'); openProfileSheet(); });
@@ -588,18 +588,21 @@
 
   function openProfileSheet() {
     const p = A.state.profile || {};
-    let uEl = null, gEl = null, aEl = null, avEl = null, draft;
+    let uEl = null, pnEl = null, gEl = null, aEl = null, avEl = null, draft;
     const fileEl = h('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
     const sb = sheet({
       title: '我的资料',
       build: function (b) {
-        b.appendChild(h('div.fld-hint', { text: '用户名改完就用新名字登录（手机号也能登）。点头像换一张，会自动裁成方图。' }));
+        b.appendChild(h('div.fld-hint', { text: '用户名是登录用的。笔名是作品上的作者名，改它不影响账号，也不会把用户名印到书上。点头像换一张，会自动裁成方图。' }));
         avEl = avatarNode(p.avatar_url, p.name, true);
         avEl.addEventListener('click', function () { haptic('light'); fileEl.click(); });
         b.appendChild(h('div.pf-edit-av', null, avEl, h('div.small.muted', { text: '点头像换一张' })));
         uEl = h('input.li-input', { type: 'text', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false',
           value: p.username || '', placeholder: p.masked || '用户名', style: INPUT_STYLE });
         b.appendChild(field('用户名', uEl));
+        pnEl = h('input.li-input', { type: 'text', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false',
+          value: p.pen_name || '', placeholder: '作品作者名，比如 墨舟', style: INPUT_STYLE });
+        b.appendChild(field('笔名', pnEl));
         gEl = h('select.li-input', { style: INPUT_STYLE },
           GENDER_OPTS.map(function (o) { return h('option', { value: o[0], text: o[1] }); }));
         gEl.value = p.gender || '';
@@ -625,7 +628,7 @@
       });
     });
     async function save() {
-      const patch = { username: uEl.value.trim(), gender: gEl.value, age: aEl.value.trim() };
+      const patch = { username: uEl.value.trim(), pen_name: pnEl.value.trim(), gender: gEl.value, age: aEl.value.trim() };
       if (draft !== undefined) patch.avatar = draft;
       try {
         const r = await api.post('/api/mz/profile', patch);
