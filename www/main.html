@@ -38,8 +38,8 @@
 <link rel="apple-touch-startup-image" href="splash/1125x2436.png" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3)" />
 <link rel="apple-touch-startup-image" href="splash/828x1792.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2)" />
 <link rel="apple-touch-startup-image" href="splash/750x1334.png" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2)" />
-<link rel="stylesheet" href="style.css?v=20260928g" />
-<link rel="stylesheet" href="fx.css?v=20260928g" />
+<link rel="stylesheet" href="style.css?v=20260928h" />
+<link rel="stylesheet" href="fx.css?v=20260928h" />
 </head>
 <body>
 <div class="aurora"></div>
@@ -50,17 +50,18 @@
   <form class="login-card" id="loginForm" novalidate>
     <div class="login-logo" id="loginLogo"></div>
     <h1>墨舟创作工坊</h1>
-    <p class="login-sub">登录后自动与云端同步书稿</p>
+    <p class="login-sub">登录后自动同步书稿</p>
     <div class="login-err" id="loginErr" hidden></div>
     <div class="login-field">
-      <label for="lgPhone">手机号</label>
-      <input id="lgPhone" name="phone" type="tel" inputmode="numeric" autocomplete="username"
-             placeholder="云端登录手机号" enterkeyhint="next" />
+      <label for="lgUser">用户名</label>
+      <input id="lgUser" name="user" type="text" autocapitalize="off" autocorrect="off"
+             autocomplete="username" spellcheck="false"
+             placeholder="用户名或手机号" enterkeyhint="next" />
     </div>
     <div class="login-field">
       <label for="lgPass">密码</label>
       <input id="lgPass" name="password" type="password" autocomplete="current-password"
-             placeholder="云端密码" enterkeyhint="go" />
+             placeholder="登录密码" enterkeyhint="go" />
     </div>
     <button class="btn primary" type="submit" id="loginGo">登录并同步</button>
     <div class="footnote txt-c">数据按账号独立存放，手机和电脑登录同一账号即是同一份稿子。</div>
@@ -122,10 +123,10 @@
   <i id="splashMsg">正在连接…</i>
 </div>
 
-<script src="api.js?v=20260928g"></script>
-<script src="app.js?v=20260928g"></script>
-<script src="pages.js?v=20260928g"></script>
-<script src="editor.js?v=20260928g"></script>
-<script src="book.js?v=20260928g"></script>
+<script src="api.js?v=20260928h"></script>
+<script src="app.js?v=20260928h"></script>
+<script src="pages.js?v=20260928h"></script>
+<script src="editor.js?v=20260928h"></script>
+<script src="book.js?v=20260928h"></script>
 </body>
 </html>
