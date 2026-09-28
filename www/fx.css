@@ -80,7 +80,7 @@
   background: radial-gradient(circle, rgba(255,255,255,.34), rgba(255,255,255,0) 68%);
   transform: scale(.2); opacity: .75; animation: mzInk .62s ease-out forwards;
 }
-body.light .ripple { background: radial-gradient(circle, rgba(20,40,70,.2), rgba(20,40,70,0) 68%); }
+html.light .ripple { background: radial-gradient(circle, rgba(20,40,70,.2), rgba(20,40,70,0) 68%); }
 
 /* ============================== 加载 ============================== */
 .spinner {
