@@ -182,7 +182,7 @@ window.MZ = (function () {
         if (nb2) return req(path, Object.assign({}, opts, { _retry: true }));
       }
       MZ.online = false;
-      throw new ApiError('连不上云端服务器，请检查手机网络后重试', -2);
+      throw new ApiError('连不上服务器，请检查手机网络后重试', -2);
     }
     if (timer) clearTimeout(timer);
     MZ.online = true;
@@ -216,9 +216,9 @@ window.MZ = (function () {
   /* 登录：走同一套「入口自动切换」。登录页在没会话时就得能进，
      所以这里不能借 req()（req 会把 401 当成会话过期回登录页），单独实现一份。
      返回 {resp, data}；网络层失败会自动换入口重试一次。 */
-  async function login(phone, password) {
+  async function login(user, password) {
     const payload = JSON.stringify({
-      phone: String(phone || '').replace(/\s+/g, ''),
+      user: String(user || '').replace(/^\s+|\s+$/g, ''),
       password: String(password || ''),
     });
     const send = function () {
