@@ -965,3 +965,13 @@ body.wc-open #mzAcctBtn { opacity: 0 !important; pointer-events: none !important
   .welcome, .wc-tip { animation-duration: .01s; }
   .wc-card { animation: none; }
 }
+
+/* ============================== 频道 / 类型选择（新建作品、编辑资料） ============================== */
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip.pick { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: color .16s, background .16s, border-color .16s; }
+.chip.pick:active { transform: scale(.96); }
+.chip.pick.on {
+  color: var(--text); font-weight: 660;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
+}
