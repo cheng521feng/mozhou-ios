@@ -906,3 +906,62 @@ select.li-input { color: var(--text); -webkit-appearance: none; appearance: none
 .pf-sub { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
 .pf-hello { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line-soft); font-size: 13px; color: var(--muted); }
 .pf-edit-av { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 6px 0 14px; }
+
+/* ============================== 登录页：密码可以点眼睛看明文 ============================== */
+.login-field .hint { float: right; font-weight: 400; font-size: 11.5px; color: var(--dim); }
+.pw { position: relative; }
+.pw input { padding-right: 50px; }
+.pw .eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 38px; height: 38px; display: grid; place-items: center; color: var(--dim);
+  border-radius: 12px; transition: color .16s, background .16s;
+}
+.pw .eye:active { background: var(--line-soft); transform: translateY(-50%) scale(.94); }
+.pw .eye.on { color: var(--accent); }
+.pw .eye svg { width: 21px; height: 21px; display: block; }
+
+/* ============================== 开屏欢迎页（登录成功后） ==============================
+   盖在启动页（.splash）和底部页签之上；点一下、或 2.6 秒后自动淡出。
+   只画头像和名字，不请求东西 —— 断网也照样好看。 */
+.welcome {
+  position: fixed; inset: 0; z-index: 96; display: flex; align-items: center; justify-content: center;
+  padding: calc(24px + var(--safe-t)) 24px calc(24px + var(--safe-b));
+  -webkit-tap-highlight-color: transparent; animation: wcIn .42s ease both;
+  background:
+    radial-gradient(120% 80% at 50% -12%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 62%),
+    radial-gradient(90% 70% at 84% 100%, color-mix(in srgb, var(--blue) 14%, transparent), transparent 64%),
+    var(--bg-deep);
+}
+.welcome[hidden] { display: none; }
+.welcome.out { animation: wcOut .40s ease forwards; }
+@keyframes wcIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes wcOut { to { opacity: 0; } }
+.wc-card { display: flex; flex-direction: column; align-items: center; text-align: center; animation: wcUp .72s var(--spring) both; }
+@keyframes wcUp { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
+.wc-av {
+  width: 104px; height: 104px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+  font-size: 40px; font-weight: 600; color: #04241b;
+  background: linear-gradient(145deg, var(--accent), var(--blue));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent),
+              0 0 0 10px color-mix(in srgb, var(--accent) 7%, transparent),
+              0 26px 60px -22px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.wc-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wc-hi { margin-top: 28px; font-size: 12.5px; color: var(--muted); letter-spacing: .34em; text-indent: .34em; }
+.wc-name {
+  margin-top: 11px; font-size: 29px; font-weight: 660; letter-spacing: .02em; line-height: 1.25;
+  max-width: 76vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wc-line { width: 44px; height: 2px; border-radius: 2px; margin: 19px 0 17px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+.wc-sub { font-size: 12.5px; color: var(--muted); letter-spacing: .05em; }
+/* 欢迎页开着的时候，网关注入的账号胶囊（z-index 特别高）先让一让 */
+body.wc-open #mzAcctBtn { opacity: 0 !important; pointer-events: none !important; }
+.wc-tip {
+  position: fixed; left: 0; right: 0; bottom: calc(26px + var(--safe-b)); text-align: center;
+  font-size: 11.5px; color: var(--dim); letter-spacing: .1em; animation: wcIn .6s .55s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome, .wc-tip { animation-duration: .01s; }
+  .wc-card { animation: none; }
+}
