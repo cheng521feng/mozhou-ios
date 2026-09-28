@@ -60,6 +60,63 @@ window.MZBook = (function () {
     return { node: node, on: function () { return state; } };
   }
 
+  /* ============================== 频道 / 题材 ==============================
+     清单来自后端 /api/genres（config.CHANNELS），和电脑端共用一份，改一处两边都变。 */
+  let GENRES = null;
+  async function loadGenres() {
+    if (GENRES) return GENRES;
+    try { GENRES = await api.get('/api/genres'); }
+    catch (e) {
+      GENRES = { channels: { '男频': ['都市'], '女频': ['现言'] },
+                 order: ['男频', '女频'], default: '男频' };
+    }
+    return GENRES;
+  }
+
+  /* 男频/女频（分段器）+ 类型（可点的小标签）。选中的类型不在清单里就补一条，改老书不会把分类弄丢。 */
+  function genrePicker(curChan, curCat) {
+    const box = h('div');
+    let chan = curChan || '', cat = curCat || '';
+    const g = { channels: {}, order: [], default: '' };
+    const chanSeg = h('div.seg');
+    const catWrap = h('div.chips');
+    box.appendChild(h('div.fld', null, h('label', { text: '频道' }), chanSeg));
+    box.appendChild(h('div.fld', null, h('label', { text: '类型' }), catWrap));
+
+    function paintCats() {
+      clear(catWrap);
+      const list = (g.channels[chan] || []).slice();
+      if (cat && list.indexOf(cat) < 0) list.unshift(cat);
+      if (list.length && list.indexOf(cat) < 0) cat = list[0];
+      list.forEach(function (c) {
+        const el = h('span.chip.pick' + (c === cat ? '.on' : ''), { text: c });
+        el.addEventListener('click', function () {
+          if (c === cat) return;
+          haptic('light'); cat = c; paintCats();
+        });
+        catWrap.appendChild(el);
+      });
+    }
+    function paintChans() {
+      clear(chanSeg);
+      (g.order.length ? g.order : Object.keys(g.channels)).forEach(function (c) {
+        const b = h('button' + (c === chan ? '.on' : ''), { type: 'button', text: c });
+        b.addEventListener('click', function () {
+          if (c === chan) return;
+          haptic('light'); chan = c; cat = ''; paintChans(); paintCats();
+        });
+        chanSeg.appendChild(b);
+      });
+    }
+    loadGenres().then(function (gg) {
+      g.channels = gg.channels || {}; g.order = gg.order || []; g.default = gg.default || '';
+      const chans = g.order.length ? g.order : Object.keys(g.channels);
+      if (chans.indexOf(chan) < 0) chan = (g.default && chans.indexOf(g.default) >= 0) ? g.default : (chans[0] || '男频');
+      paintChans(); paintCats();
+    });
+    return { node: box, channel: function () { return chan; }, category: function () { return cat; } };
+  }
+
   /* ============================== 作品页 ============================== */
 
   function open(nid) {
@@ -111,7 +168,7 @@ window.MZBook = (function () {
     const need = (n.plan && n.plan.need) || 0;
     const main = h('div.bk-main');
     main.appendChild(h('div.bk-title', { text: n.title || '未命名', style: { fontSize: '19px' } }));
-    main.appendChild(h('div.bk-cat', { text: [n.category, n.author].filter(Boolean).join(' · ') || '未分类' }));
+    main.appendChild(h('div.bk-cat', { text: [n.channel, n.category, n.author].filter(Boolean).join(' · ') || '未分类' }));
     main.appendChild(h('div.bk-meta', null,
       chip((n.chapter_count || 0) + ' 章', '', 'books'),
       chip(fmtNum(n.total_chars || 0) + ' 字', '', 'file'),
@@ -304,10 +361,11 @@ window.MZBook = (function () {
     const bs = busySheet('AI 正在构思大纲…');
     let r = null;
     try {
-      const topic = [n.title, n.category].filter(Boolean).join(' ') +
+      const topic = [n.title, n.channel, n.category].filter(Boolean).join(' ') +
         ((n.intro || '').trim() ? '｜已有简介：' + String(n.intro).slice(0, 120) : '');
-      r = await api.post('/api/idea', { topic: topic, category: n.category || '都市', count: 20, create: 0 },
-        { timeout: 300000 });
+      r = await api.post('/api/idea', {
+        topic: topic, channel: n.channel || '', category: n.category || '都市', count: 20, create: 0,
+      }, { timeout: 300000 });
     } catch (e) { bs.close(); toast(e.message, 'bad'); return; }
     bs.close();
     showPlan(n, r || {});
@@ -376,7 +434,7 @@ window.MZBook = (function () {
       return v === undefined || v === null ? dft : v;
     };
     const title = textField('书名', val('title', ''), { ph: '书名' });
-    const category = textField('分类', val('category', ''));
+    const genre = genrePicker(val('channel', ''), val('category', ''));
     const author = textField('作者', val('author', ''));
     const intro = textField('简介', val('intro', ''), { area: true, rows: 4, ph: '读者看到的那段话，最后一句要勾人' });
     const outline = textField('主线大纲', val('outline', ''), { area: true, rows: 6, hint: '内核写作时会按它推进剧情。懒得写就回上一页点「AI 根据书名写大纲」。' });
@@ -390,7 +448,7 @@ window.MZBook = (function () {
     const pinned = toggleRow('在书架置顶', !!val('pinned', false));
 
     clear(s.body);
-    [title, category, author, intro, outline, characters, setting, style].forEach(function (f) {
+    [title, genre, author, intro, outline, characters, setting, style].forEach(function (f) {
       s.body.appendChild(f.node);
     });
     s.body.appendChild(h('div.g2', null, daily.node, tw.node));
@@ -403,7 +461,8 @@ window.MZBook = (function () {
         if (!name) { toast('书名不能为空', 'bad'); return; }
         const body = {
           title: name,
-          category: category.value().trim(),
+          channel: genre.channel(),
+          category: genre.category().trim(),
           author: author.value().trim(),
           intro: intro.value(),
           outline: outline.value(),
@@ -606,5 +665,6 @@ window.MZBook = (function () {
   return {
     open: open, editMeta: editMeta, aiOutline: aiOutline, remove: remove,
     moreSheet: moreSheet, field: textField, toggle: toggleRow,
+    picker: genrePicker, genres: loadGenres,
   };
 })();
