@@ -431,16 +431,23 @@ window.MZ = (function () {
     const mask = $('#' + maskId);
     const box = $('#' + boxId);
     let onClose = null;
+    let wipeT = 0;
     function close() {
       mask.classList.remove('on');
       mask.classList.add('hidden');
-      setTimeout(function () { clear(box); }, 320);
+      /* 关窗后 320ms 才清空（等退场动画走完）。但「关一个马上开另一个」是常见写法：
+         busySheet 关掉接着开结果 sheet、两次 confirm 连着弹……
+         那时候这个定时器会把新弹窗的内容抹成空白。hold() 就是给新弹窗用的：写新内容前先把它撤掉。 */
+      if (wipeT) clearTimeout(wipeT);
+      wipeT = setTimeout(function () { wipeT = 0; clear(box); }, 320);
       const cb = onClose; onClose = null;
       if (cb) cb();
     }
     mask.addEventListener('click', function (e) { if (e.target === mask) close(); });
     return {
       mask: mask, box: box, close: close,
+      /* 即将往 box 里写新内容：撤掉上一次关窗留下的延迟清空 */
+      hold: function () { if (wipeT) { clearTimeout(wipeT); wipeT = 0; } },
       setOnClose: function (f) { onClose = f; },
       /* 关键：按钮自己给结果时，先摘掉 onClose 再关，避免它抢答成 null */
       closeSilent: function () { onClose = null; close(); },
@@ -454,6 +461,7 @@ window.MZ = (function () {
     opt = opt || {};
     if (!sheetCtl) sheetCtl = bindMask('maskSheet', 'sheetBox');
     const box = sheetCtl.box;
+    sheetCtl.hold();
     clear(box);
     const head = opt.title ? h('div.sheet-head', null,
       h('h3', { text: opt.title }),
@@ -471,6 +479,9 @@ window.MZ = (function () {
     let y0 = 0, dy = 0, drag = false;
     function onDown(e) {
       if (e.target.closest && e.target.closest('button,input,textarea,.no-drag')) return;
+      /* 抽屉里内容已经往下滚了，这一下是在翻表单，不是在往下拉关闭 */
+      const sb = box.querySelector('.sheet-body');
+      if (sb && sb.scrollTop > 2) return;
       const t = e.touches ? e.touches[0] : e;
       y0 = t.clientY; dy = 0; drag = true;
       box.style.transition = 'none';
@@ -504,6 +515,7 @@ window.MZ = (function () {
     opt = opt || {};
     if (!actionsCtl) actionsCtl = bindMask('maskActions', 'actionsBox');
     const box = actionsCtl.box;
+    actionsCtl.hold();
     clear(box);
     const group = h('div.as-group');
     if (opt.title) group.appendChild(h('div.as-title', { text: opt.title }));
@@ -536,6 +548,7 @@ window.MZ = (function () {
     return new Promise(function (resolve) {
       if (!modalCtl) modalCtl = bindMask('maskModal', 'modalBox');
       const box = modalCtl.box;
+      modalCtl.hold();
       clear(box);
       let inputEl = null;
       box.appendChild(h('h3', { text: opt.title || '' }));
