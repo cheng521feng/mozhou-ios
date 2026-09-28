@@ -269,6 +269,13 @@
         if (!ok) return;
         MZ.setSession('');
         MZ.setToken('');
+        /* 浏览器里用的是网关 Cookie 会话：不退掉它，刷新一下又被自动带进去，
+           表现就是「退出登录不管用」。装机版 App 没有 Cookie，这个请求会落空，无副作用。 */
+        try {
+          if (/^https?:$/.test(location.protocol)) {
+            fetch('/logout', { credentials: 'same-origin', cache: 'no-store' }).catch(function () { /* 忽略 */ });
+          }
+        } catch (e) { /* 忽略 */ }
         A.showLogin(null);
       });
   }
