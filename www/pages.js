@@ -108,12 +108,15 @@
         const settings = hero.settings || {};
         const providers = hero.providers || {};
 
+        /* 我的资料（头像 / 用户名 / 性别 / 年龄） */
+        out.appendChild(profileCard());
+
         /* 账号 */
         const acct = h('div.card');
         acct.appendChild(h('div.card-head', null,
           h('h3', { text: '账号与同步' }),
           chip(cloudLabel(), 'ok', 'cloud')));
-        acct.appendChild(h('div.small.muted', { text: '手机和电脑登录同一个账号，看到的永远是同一份稿子；每一次保存都会同步到云端。' }));
+        acct.appendChild(h('div.small.muted', { text: '手机和电脑登录同一个账号，看到的永远是同一份稿子；每一次保存都会自动同步。' }));
         acct.appendChild(buttons([
           { label: '退出登录', tone: 'danger', size: 'sm', onTap: function () { logout(); } },
           { label: '填访问口令', size: 'sm', onTap: function () { A.openTokenDialog().then(function (saved) { if (saved) A.refreshAll(false); }); } },
@@ -243,7 +246,7 @@
         gl.appendChild(li({ ico: 'write', title: '累计字数', right: h('span.num', { text: fmtWords(st.chars || 0) }) }));
         gl.appendChild(li({ ico: 'layers', title: '界面', right: h('span', { text: '移动端 v5 · 液态墨' }) }));
         out.appendChild(gl);
-        out.appendChild(h('div.footnote', { text: '数据在云服务器上：手机和电脑登录同一个账号，看到的就是同一份稿子，会自动同步。' }));
+        out.appendChild(h('div.footnote', { text: '数据都在服务器上：手机和电脑登录同一个账号，看到的就是同一份稿子，会自动同步。' }));
         return out;
       },
     };
@@ -252,7 +255,7 @@
   function cloudLabel() {
     const c = String(MZ.CLOUD || '');
     if (!c) return '本地调试';
-    return '云端已连接';
+    return '已连接';
   }
   function standalone() {
     try {
@@ -521,6 +524,110 @@
     return '三个模型各干各拿手的。';
   }
 
+
+  /* ---- 我的资料：头像 / 用户名 / 性别 / 年龄 ---- */
+  const GENDER_OPTS = [['', '未填'], ['男', '男'], ['女', '女'], ['保密', '保密']];
+
+  function avatarNode(url, name, big) {
+    const box = h('div.pf-av' + (big ? '.big' : '') + (url ? '.has' : ''));
+    if (url) box.appendChild(h('img', { src: MZ.img(url), alt: '' }));
+    else box.appendChild(h('span', { text: String(name || '?').slice(0, 1) }));
+    return box;
+  }
+
+  /* 头像压到 256x256 方图：省流量，上传也快 */
+  function shrinkImage(file, cb) {
+    try {
+      const fr = new FileReader();
+      fr.onload = function () {
+        const img = new Image();
+        img.onload = function () {
+          try {
+            const n = 256, cv = document.createElement('canvas');
+            cv.width = n; cv.height = n;
+            const ctx = cv.getContext('2d');
+            const s = Math.min(img.width, img.height) || n;
+            ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, n, n);
+            cb(cv.toDataURL('image/jpeg', 0.88));
+          } catch (e) { cb(''); }
+        };
+        img.onerror = function () { cb(''); };
+        img.src = fr.result;
+      };
+      fr.onerror = function () { cb(''); };
+      fr.readAsDataURL(file);
+    } catch (e) { cb(''); }
+  }
+
+  function profileCard() {
+    const p = A.state.profile || {};
+    const name = p.name || '我';
+    const info = [p.gender, p.age ? p.age + ' 岁' : ''].filter(function (x) { return x; }).join(' · ');
+    const c = h('div.card');
+    const edit = h('button.btn.ghost.sm', { type: 'button', text: '编辑资料' });
+    edit.addEventListener('click', function () { haptic('light'); openProfileSheet(); });
+    c.appendChild(h('div.pf-row', null,
+      avatarNode(p.avatar_url, name, false),
+      h('div.pf-main', null,
+        h('div.pf-name', { text: name }),
+        h('div.pf-sub', { text: info || '还没填性别和年龄' })),
+      edit));
+    c.appendChild(h('div.pf-hello', { text: p.welcome
+      ? '欢迎你，' + name + '！把资料补全吧'
+      : '欢迎回来，' + name }));
+    return c;
+  }
+
+  function openProfileSheet() {
+    const p = A.state.profile || {};
+    let uEl = null, gEl = null, aEl = null, avEl = null, draft;
+    const fileEl = h('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
+    const sb = sheet({
+      title: '我的资料',
+      build: function (b) {
+        b.appendChild(h('div.fld-hint', { text: '用户名改完就用新名字登录（手机号也能登）。点头像换一张，会自动裁成方图。' }));
+        avEl = avatarNode(p.avatar_url, p.name, true);
+        avEl.addEventListener('click', function () { haptic('light'); fileEl.click(); });
+        b.appendChild(h('div.pf-edit-av', null, avEl, h('div.small.muted', { text: '点头像换一张' })));
+        uEl = h('input.li-input', { type: 'text', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false',
+          value: p.username || '', placeholder: p.masked || '用户名', style: INPUT_STYLE });
+        b.appendChild(field('用户名', uEl));
+        gEl = h('select.li-input', { style: INPUT_STYLE },
+          GENDER_OPTS.map(function (o) { return h('option', { value: o[0], text: o[1] }); }));
+        gEl.value = p.gender || '';
+        b.appendChild(field('性别', gEl));
+        aEl = h('input.li-input', { type: 'number', inputmode: 'numeric', min: '1', max: '120',
+          value: p.age || '', placeholder: '比如 28', style: INPUT_STYLE });
+        b.appendChild(field('年龄', aEl));
+        b.appendChild(buttons([{ label: '保存资料', tone: 'primary', onTap: save }]));
+        b.appendChild(h('div.footnote', { text: '资料存在服务器上，手机和电脑看到的是同一份。' }));
+        b.appendChild(fileEl);
+      },
+    });
+    fileEl.addEventListener('change', function () {
+      const f = fileEl.files && fileEl.files[0];
+      fileEl.value = '';
+      if (!f) return;
+      shrinkImage(f, function (dataUrl) {
+        if (!dataUrl) { toast('这张图读不了，换一张试试', 'bad'); return; }
+        draft = dataUrl;
+        clear(avEl);
+        avEl.appendChild(h('img', { src: dataUrl, alt: '' }));
+        toast('头像选好了，点「保存资料」', 'ok');
+      });
+    });
+    async function save() {
+      const patch = { username: uEl.value.trim(), gender: gEl.value, age: aEl.value.trim() };
+      if (draft !== undefined) patch.avatar = draft;
+      try {
+        const r = await api.post('/api/mz/profile', patch);
+        A.state.profile = (r && r.profile) || A.state.profile || {};
+        sb.close();
+        toast('资料已保存', 'ok');
+        A.render();
+      } catch (e) { toast(e.message || '保存失败', 'bad'); }
+    }
+  }
 
   /* ---- 读写设置 ---- */
   async function putSettings(patch, msg) {
