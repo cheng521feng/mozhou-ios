@@ -975,3 +975,11 @@ body.wc-open #mzAcctBtn { opacity: 0 !important; pointer-events: none !important
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   border-color: color-mix(in srgb, var(--accent) 62%, transparent);
 }
+
+/* ============================== 登录页：用手机号注册 ============================== */
+.reg-link { width: 100%; margin-top: 9px; font-weight: 520; color: var(--muted); }
+.reg-link:active { color: var(--text); }
+/* 验证码输入框 + 「获取验证码」按钮并排 */
+.reg-cap { display: flex; gap: 9px; align-items: center; }
+.reg-cap .inp { flex: 1 1 auto; min-width: 0; }
+.reg-cap .btn { flex: 0 0 auto; }
