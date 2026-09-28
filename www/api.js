@@ -259,6 +259,51 @@ window.MZ = (function () {
     });
   }
 
+  /* ============================== 存文件 ==============================
+     iOS 上是把网页装进 WKWebView 壳里跑的（Capacitor）。WKWebView【不支持】a[download]：
+     点了什么都不会发生 —— 所以手机上「导出 txt」以前看着像成功了，其实一个文件都没落地。
+     这里改成分两步：原生壳里用 Filesystem 写进 App 的「文件」目录（Info.plist 开了
+     文件共享，所以能在「文件」App → 我的 iPhone → 墨舟 里看到），再顺手弹一下系统分享，
+     想存哪儿（存到「文件」/ 发微信）都行；浏览器里还是老办法（blob + a[download]）。 */
+  function b64utf8(str) {
+    const bytes = new TextEncoder().encode(String(str == null ? '' : str));
+    let bin = '';
+    const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    }
+    return btoa(bin);
+  }
+  function safeName(name, def) {
+    return String(name || def || 'novel.txt').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+  }
+  async function saveText(filename, text) {
+    const name = safeName(filename, 'novel.txt');
+    const Cap = window.Capacitor;
+    const native = !!(Cap && typeof Cap.isNativePlatform === 'function' && Cap.isNativePlatform());
+    const FS = native && Cap.Plugins ? Cap.Plugins.Filesystem : null;
+    if (FS) {
+      const res = await FS.writeFile({
+        path: '墨舟导出/' + name,
+        data: b64utf8(text),
+        directory: 'DOCUMENTS',
+        recursive: true,
+      });
+      const SH = Cap.Plugins.Share;
+      if (SH) {
+        /* 弹分享面板：用户可以「存储到文件」。取消不算失败，所以吞掉异常。 */
+        try { await SH.share({ title: name, files: [res.uri] }); } catch (e) { /* 取消/不支持 */ }
+      }
+      return { saved: true, native: true, uri: res.uri, name: name };
+    }
+    const blob = new Blob([String(text == null ? '' : text)], { type: 'text/plain;charset=utf-8' });
+    const urlObj = URL.createObjectURL(blob);
+    const a = h('a', { href: urlObj, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(urlObj); }, 4000);
+    return { saved: true, native: false, name: name };
+  }
+
   /* ============================== hyperscript ============================== */
   function h(tag, attrs) {
     const parts = String(tag).split(/([.#])/);
@@ -858,6 +903,7 @@ window.MZ = (function () {
     h: h, frag: frag, add: add, clear: clear, $: $, $$: $$,
     icon: icon, brand: brand, ICONS: ICONS,
     haptic: haptic, toast: toast, sheet: sheet, actions: actions, modal: modal, confirm: confirm,
+    saveText: saveText, b64utf8: b64utf8,
     attachPull: attachPull, ripple: ripple, skeleton: skeleton, clipboard: clipboard,
     ring: ring, bar: bar, chip: chip, countNode: countNode, countUp: countUp,
     fmtNum: fmtNum, fmtWords: fmtWords, fmtDur: fmtDur, fmtDate: fmtDate, timeAgo: timeAgo,
