@@ -105,7 +105,9 @@ window.MZApp = (function () {
   }
   function stagger(root) {
     if (!root || !root.children || reduceMotion()) return;
-    const kids = Array.prototype.slice.call(root.children).slice(0, 9);
+    const kids = Array.prototype.slice.call(root.children).filter(function (k) {
+      return !k.hasAttribute || !k.hasAttribute('data-static');
+    }).slice(0, 9);
     kids.forEach(function (k, i) {
       if (!k.style || !k.classList) return;
       k.style.setProperty('--i', String(i));
@@ -602,35 +604,91 @@ window.MZApp = (function () {
   };
 
   /* ============================== 书架 ============================== */
+  /* 「整理（多选删除）」的状态放模块级：删除 / 切模式后都要 render()，重建 DOM 不能把选择丢掉 */
+  const booksSel = { mode: false, ids: {} };
+  function booksSelCount() {
+    return Object.keys(booksSel.ids).filter(function (k) { return booksSel.ids[k]; }).length;
+  }
+  function novelTitleOf(id) {
+    const n = state.novels.filter(function (x) { return x.id === Number(id); })[0];
+    return n ? (n.title || '未命名') : ('#' + id);
+  }
+
   screens.books = function () {
     return {
       title: '书架',
-      action: { label: '新建', onTap: function () { newNovel(); } },
-      async mount(body) {
+      action: { label: '新建', onTap: function () { newNovelMenu(); } },
+      async mount() {
         const d = await ensureHero();
         const out = h('div.pad');
         if (!state.novels.length) {
-          out.appendChild(emptyBox('books', '书架是空的', '点右上角「新建」建一本新书'));
+          booksSel.mode = false; booksSel.ids = {};
+          out.appendChild(emptyBox('books', '书架是空的',
+            '点右上角「新建」：可以自己取个书名让 AI 写大纲，也可以把整本书粘进来导入'));
           return out;
         }
         const st = d.stats || {};
-        out.appendChild(h('div.small.muted.mb12', {
-          text: '共 ' + (st.novels || state.novels.length) + ' 本 · ' + (st.chapters || 0) + ' 章 · ' + fmtNum(st.chars || 0) + ' 字' }));
         const list = state.novels.slice().sort(function (a, b) {
           if (!!b.pinned - !!a.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
           return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
         });
+        out.appendChild(booksHead(list.length, st));
         list.forEach(function (n) { out.appendChild(bookCard(n)); });
+        out.appendChild(h('div.footnote', {
+          text: booksSel.mode
+            ? '选好之后点上面的「删除」，会先放进「我的 → 回收站」，随时能恢复。'
+            : '长按一本书，或点它右边的「⋯」，可以直接编辑资料、写大纲、删书，不用先进作品页。',
+        }));
         return out;
       },
     };
   };
+
+  /* 吸顶条：往上滚的时候「共几本 / 整理 / 删除」一直挂在导航栏下面 */
+  function booksHead(total, st) {
+    const picked = booksSelCount();
+    const box = h('div.books-head' + (booksSel.mode ? '.sel' : ''), { 'data-static': true });
+    box.appendChild(h('div.bh-stat', null,
+      booksSel.mode
+        ? h('b', { text: '已选 ' + picked + ' / ' + total + ' 本' })
+        : [h('b', { text: '共 ' + (st.novels || total) + ' 本' }),
+           h('span', { text: ' · ' + (st.chapters || 0) + ' 章 · ' + fmtNum(st.chars || 0) + ' 字' })]));
+    const tools = h('div.bh-tools');
+    if (booksSel.mode) {
+      tools.appendChild(miniBtn(picked && picked === total ? '取消全选' : '全选', '', function () {
+        if (picked && picked === total) booksSel.ids = {};
+        else state.novels.forEach(function (n) { booksSel.ids[n.id] = true; });
+        render();
+      }));
+      tools.appendChild(miniBtn(picked ? '删除 ' + picked : '删除', 'danger', function () {
+        if (!picked) { toast('先点书封选中要删的书', 'bad'); return; }
+        removeSelected();
+      }));
+      tools.appendChild(miniBtn('完成', '', function () {
+        booksSel.mode = false; booksSel.ids = {}; render();
+      }));
+    } else {
+      tools.appendChild(miniBtn('整理', '', function () {
+        booksSel.mode = true; booksSel.ids = {}; render();
+      }));
+    }
+    box.appendChild(tools);
+    return box;
+  }
+
+  function miniBtn(label, tone, onTap) {
+    const b = h('button.bh-btn' + (tone ? '.' + tone : ''), { type: 'button', text: label });
+    b.addEventListener('click', function () { haptic('light'); onTap(); });
+    return b;
+  }
+
   function bookCard(n) {
     const live = state.live || {};
     const running = (live.books || []).filter(function (b) { return b.id === n.id; })[0] || null;
     const need = planNeed(n), made = planMade(n);
     const daily = (n.plan && n.plan.daily) || n.daily_count || 0;
-    const el = h('div.book' + (running ? '.running' : ''));
+    const picked = !!booksSel.ids[n.id];
+    const el = h('div.book' + (running ? '.running' : '') + (picked ? '.picked' : ''));
     if (n.cover_url) {
       el.appendChild(h('img.cover', { src: MZ.img(n.cover_url), alt: '', decoding: 'async',
         onerror: function (e) { const im = e && e.currentTarget; if (im && im.parentNode) im.parentNode.replaceChild(h('div.cover', { text: (n.title || '书').slice(0, 1) }), im); } }));
@@ -653,60 +711,85 @@ window.MZApp = (function () {
       h('span.tiny.muted.num', { text: '今日 ' + made + '/' + daily })));
     if (running && running.phase) main.appendChild(h('div.op-note', { text: running.phase + (running.current_idx ? ' · 第 ' + running.current_idx + ' 章' : '') }));
     el.appendChild(main);
-    el.addEventListener('click', function () { haptic('light'); openBook(n.id); });
+
+    if (booksSel.mode) {
+      el.appendChild(h('div.bk-pick' + (picked ? '.on' : ''), null, picked ? icon('check', { size: 15, w: 2.8 }) : null));
+      el.addEventListener('click', function () {
+        haptic('light');
+        if (booksSel.ids[n.id]) delete booksSel.ids[n.id];
+        else booksSel.ids[n.id] = true;
+        render();
+      });
+      return el;
+    }
+
+    /* 「⋯」和长按都给同一个操作菜单：删书不用先点进作品页 */
+    const dot = h('button.bk-dot', { type: 'button', 'aria-label': '《' + (n.title || '') + '》的操作' },
+      icon('more', { size: 16 }));
+    dot.addEventListener('click', function (e) { e.stopPropagation(); haptic('light'); bookMore(n); });
+    el.appendChild(dot);
+
+    let hold = null, held = false;
+    el.addEventListener('touchstart', function () {
+      held = false;
+      if (hold) clearTimeout(hold);
+      hold = setTimeout(function () { hold = null; held = true; haptic('medium'); bookMore(n); }, 480);
+    }, { passive: true });
+    const dropHold = function () { if (hold) { clearTimeout(hold); hold = null; } };
+    el.addEventListener('touchend', dropHold);
+    el.addEventListener('touchmove', dropHold);
+    el.addEventListener('touchcancel', dropHold);
+    el.addEventListener('click', function () {
+      if (held) { held = false; return; }
+      haptic('light'); openBook(n.id);
+    });
     return el;
   }
-  function openBook(nid) {
-    push({
-      title: '作品',
-      action: null,
-      async mount() {
-        const n = findNovel(nid);
-        const out = h('div.pad');
-        if (!n) { out.appendChild(emptyBox('bolt', '找不到这本书', '可能已被删除，返回书架刷新看看')); return out; }
-        out.appendChild(h('h2', { style: { fontSize: '20px', fontWeight: '700', letterSpacing: '-.4px', margin: '2px 0 6px' }, text: n.title || '未命名' }));
-        out.appendChild(h('div.bk-meta', null,
-          chip((n.chapter_count || 0) + ' 章', '', 'books'),
-          chip(fmtNum(n.total_chars || 0) + ' 字', '', 'file'),
-          n.enabled === false ? chip('已暂停', 'warn') : chip('每日 ' + ((n.plan && n.plan.daily) || n.daily_count || 0) + ' 章', 'blue', 'refresh')));
-        if (n.intro) out.appendChild(h('div.card.tight.small.muted.mt12.pre-wrap', { text: String(n.intro).slice(0, 400) }));
-        out.appendChild(buttons([
-          { label: '补更（续写）', tone: 'primary', onTap: function () { askUpdate(n); } },
-          { label: '全书体检', onTap: function () { bookHitReview(n); } },
-        ]));
-        out.appendChild(buttons([
-          { label: '重写前几章', onTap: function () { askRewrite(n); } },
-          { label: '导出 txt', onTap: function () { exportNovel(n); } },
-        ]));
-        const live = (state.live || {});
-        const rb = (live.books || []).filter(function (b) { return b.id === nid; })[0];
-        if (rb) { const c = liveHero(state.live, { maxEvents: 6 }); out.appendChild(h('div.mt16', null, c)); }
-        const d = await api.get('/api/novel/' + nid);
-        const nv = d.novel || {};
-        const chapters = (nv.chapters || []).slice().sort(function (a, b) { return b.idx - a.idx; });
-        const scoreMap = {};
-        (nv.metrics || []).forEach(function (m) { scoreMap[m.idx] = m.score; });
-        const title = h('div.section-title', null,
-          h('span', { text: '章节' }), h('span.sp', { text: '共 ' + chapters.length + ' 章 · 点开就写' }));
-        out.appendChild(title);
-        if (!chapters.length) { out.appendChild(emptyBox('write', '还没有章节', '点上面「补更（续写）」写第一章')); return out; }
-        const l = h('div.list');
-        chapters.slice(0, 80).forEach(function (c) {
-          const sc = scoreMap[c.idx];
-          l.appendChild(li({
-            title: '第 ' + c.idx + ' 章　' + (c.title || ''),
-            sub: fmtNum(c.chars || 0) + ' 字 · ' + (c.updated_at ? timeAgo(c.updated_at) : ''),
-            right: sc === undefined ? null : chip(String(Math.round(sc)), sc >= 75 ? 'ok' : (sc >= 55 ? '' : 'bad')),
-            arrow: true,
-            onTap: function () { MZEditor.openChapter(nid, c.id, { title: c.title, idx: c.idx }); },
-          }));
-        });
-        out.appendChild(l);
-        if (chapters.length > 80) out.appendChild(buttons([{ label: '还有 ' + (chapters.length - 80) + ' 章没显示（可到桌面版处理）' }]));
-        return out;
-      },
-    });
+
+  function bookMore(n) {
+    if (window.MZBook && window.MZBook.moreSheet) { window.MZBook.moreSheet(n.id); return; }
+    actions([
+      { label: '打开作品页', icon: 'book', onPick: function () { openBook(n.id); } },
+      { label: '删除作品', icon: 'trash', danger: true, sub: '进回收站，可恢复', onPick: function () { removeNovels([n.id]); } },
+    ], { title: n.title || '作品' });
   }
+
+  /* 删作品：二次确认 → 一本一次 DELETE（进回收站）→ 单本失败不打断整批 */
+  async function removeNovels(ids, prompt) {
+    ids = (ids || []).map(Number).filter(function (x) { return !!x; });
+    if (!ids.length) return 0;
+    const ok = await confirm(prompt || ('删除这 ' + ids.length + ' 本书？正文会一起放进回收站，之后还能恢复。'),
+      { title: '删除作品', danger: true, okText: '删除' });
+    if (!ok) return 0;
+    const bs = busySheet('正在删除…');
+    let done = 0;
+    for (let i = 0; i < ids.length; i++) {
+      try { await api.del('/api/novel/' + ids[i]); done++; }
+      catch (e) { /* 单本失败继续删下一本 */ }
+    }
+    bs.close();
+    toast(done ? ('已删除 ' + done + ' 本，可在「我的 → 回收站」恢复') : '删除失败', done ? 'ok' : 'bad');
+    if (done) haptic('success');
+    booksSel.mode = false; booksSel.ids = {};
+    await loadHero();
+    render();
+    return done;
+  }
+
+  async function removeSelected() {
+    const ids = Object.keys(booksSel.ids).filter(function (k) { return booksSel.ids[k]; });
+    if (!ids.length) return;
+    const names = ids.map(novelTitleOf);
+    await removeNovels(ids,
+      '删除选中的 ' + ids.length + ' 本书？\n' + names.slice(0, 5).join('、') + (names.length > 5 ? ' 等' : '') +
+      '\n正文会一起放进回收站，之后能在「我的 → 回收站」里恢复。');
+  }
+
+  function openBook(nid) {
+    if (window.MZBook && window.MZBook.open) { window.MZBook.open(nid); return; }
+    toast('作品页组件没加载出来，退出重进一次试试', 'bad');
+  }
+
   /* ============================== 动作 ============================== */
   async function startJob(path, okMsg, body, opts) {
     opts = opts || {};
@@ -761,19 +844,82 @@ window.MZApp = (function () {
       toast('已下载', 'ok');
     } catch (e) { toast('导出失败：' + e.message, 'bad'); }
   }
-  async function newNovel() {
-    const v = await modal({ title: '新建作品', text: '先填书名，其他设定可以之后在桌面版里补。', input: 'text', placeholder: '书名', okText: '创建' });
-    if (v === null || !String(v).trim()) return;
-    try {
-      const res = await api.post('/api/novels', { title: String(v).trim() });
-      toast('已创建《' + String(v).trim() + '》', 'ok');
-      haptic('success');
-      await loadHero();
-      await refreshLive();
-      go('books'); render();
-      if (res && res.novel && res.novel.id) setTimeout(function () { openBook(res.novel.id); }, 260);
-    } catch (e) { toast(e.message, 'bad'); }
+  function newNovelMenu() {
+    actions([
+      { label: '取个书名，让 AI 写大纲', icon: 'spark', sub: '先建书，再按书名生成大纲 / 人物 / 简介', onPick: function () { newNovel(); } },
+      { label: '粘贴整本书导入', icon: 'file', sub: '按「第 N 章」自动切章，适合搬已经写完的稿子', onPick: function () { importNovel(); } },
+    ], { title: '新建作品' });
   }
+
+  async function newNovel() {
+    const v = await modal({
+      title: '新建作品',
+      text: '先填书名。建好之后可以让 AI 根据书名写大纲，别的设定随时能在作品页里改。',
+      input: 'text', placeholder: '书名', okText: '创建',
+    });
+    if (v === null || !String(v).trim()) return;
+    const title = String(v).trim();
+    let nid = 0;
+    try {
+      const res = await api.post('/api/novels', { title: title });
+      nid = (res && res.novel && res.novel.id) || (res && res.id) || 0;
+    } catch (e) { toast(e.message, 'bad'); return; }
+    toast('已创建《' + title + '》', 'ok');
+    haptic('success');
+    await loadHero();
+    await refreshLive();
+    go('books'); render();
+    if (!nid) return;
+    const novel = findNovel(nid) || { id: nid, title: title, category: '', intro: '' };
+    if (window.MZBook && window.MZBook.aiOutline) {
+      const want = await confirm(
+        '《' + title + '》建好了。\n现在让 AI 根据书名写大纲？（简介 + 三幕大纲 + 人物 + 前 20 章章纲；生成后先给你看，点「采纳」才写进去）',
+        { okText: '写大纲', cancelText: '先不用' });
+      if (want) window.MZBook.aiOutline(novel, { silent: true });
+    }
+    openBook(nid);
+  }
+
+  /* 粘贴导入：手机选不到本地文件，所以改成把整本书粘进来，后端按「第N章」切章 */
+  function importNovel() {
+    const B = window.MZBook;
+    if (!B || !B.field) { toast('导入组件没加载出来，退出重进一次试试', 'bad'); return; }
+    const title = B.field('书名', '', { ph: '不填就自动取一个名字' });
+    const author = B.field('作者', '');
+    const text = B.field('正文', '', {
+      area: true, rows: 10, ph: '把整本书粘到这里',
+      hint: '按「第 N 章」自动切章；没有章节标记就当作第 1 章。导入后默认不参与「今日自动更新」。',
+    });
+    sheet({
+      title: '粘贴导入',
+      build: function (b, close) {
+        b.appendChild(h('div.small.muted', { text: '适合把已经写好的稿子搬进来。粘的字数很多的话，手机可能要转一会儿。' }));
+        b.appendChild(title.node);
+        b.appendChild(author.node);
+        b.appendChild(text.node);
+        b.appendChild(buttons([
+          { label: '导入这本书', tone: 'primary', onTap: async function () {
+            const t = text.value().trim();
+            if (!t) { toast('先把正文粘进来', 'bad'); return; }
+            close();
+            const bs = busySheet('正在导入…');
+            try {
+              const r = await api.post('/api/novel/import', {
+                text: t, title: title.value().trim(), author: author.value().trim(),
+              }, { timeout: 180000 });
+              bs.close();
+              toast((r && r.msg) || '导入完成', 'ok');
+              haptic('success');
+              await loadHero();
+              go('books'); render();
+              if (r && r.id) setTimeout(function () { openBook(r.id); }, 240);
+            } catch (e) { bs.close(); toast(e.message, 'bad'); }
+          } },
+        ]));
+      },
+    });
+  }
+
   async function runDaily() {
     const ok = await confirm('立刻执行一次「今日自动更新」？会给所有启用的作品按每日章数补更，耗时可能很长。', { okText: '开始' });
     if (!ok) return;
@@ -793,56 +939,162 @@ window.MZApp = (function () {
   /* ============================== 全局任务条（#opsDock） ==============================
      服务端会给每个长操作登记一条 ops（第几步 / 什么阶段 / 已用时 / 模型排队），
      这里把它画成挂在 body 上的 fixed 任务条。因为它不属于任何一屏的 DOM，
-     所以切标签页、翻页、开关写作台、甚至重开 App 都不会把进度弄丢。 */
-  let pendingOps = [];
-  let pendingSeq = 1;
-  function pending(label) {
-    const t = { id: pendingSeq++, label: label || '正在跑', t0: Date.now() };
-    pendingOps.push(t);
-    paintOps();
+     所以切标签页、翻页、开关写作台、甚至重开 App 都不会把进度弄丢。
+
+     这一版把状态机补全，专治五个体感毛病：
+     1) 按了按钮半天没动静 —— 手指一落就在本地登记一条「排队中」，不等 /api/live 回来。
+        旧版只在服务端一条 ops 都没有时才显示本地占位，别处有任务在跑就完全不反馈。
+     2) 同一条任务显示成两行 —— 本地占位与服务端条目按标题匹配去重（match 由调用方给），
+        服务端条目一露面（例：合规预检 · 第12章）本地这条立刻让位，不重复也不闪断。
+     3) 进度与「已用时」卡住 —— 600ms 本地节拍器只重绘数字和进度条，取数仍走 /api/live，
+        两次轮询之间用时照常往上走；进度只进不退。
+     4) 跑完了还挂着一个 100% 的条 —— 全部结束显示「已完成」，4 秒后自动收起；
+        失败的条目不会被收走：标红留在那里，等用户点「知道了」。
+     5) 多条任务时标题来回跳 —— 固定排序（失败 → 进行中 → 完成），组内按开始时间。 */
+  const OPS_OPEN_KEY = 'mz_ops_open';
+  const OPS_TICK_MS = 600;
+  const OPS_GRACE = 5000;        /* 请求已返回、服务端条目还没露面的宽限（要大于一次轮询间隔） */
+  const OPS_STALE = 120000;      /* 本地占位最多挂 2 分钟，免得网络卡死时一直转 */
+  const OPS_LINGER = 4200;       /* 全部跑完后自动收起的等待 */
+
+  let localOps = [];             /* 本地占位：按钮已按下、服务端 ops 还没露面 */
+  let localSeq = 1;
+  let liveAt = 0;                /* 最近一次 /api/live 成功的时刻（用来推算用时） */
+  let pctMemo = {};              /* key -> {v, started}：显示过的最大百分比，只进不退 */
+  let acked = {};                /* 用户点过「知道了」的条目：key -> 时间戳 */
+  let hideAt = 0;                /* 全部跑完后的自动收起时刻 */
+  let tickTimer = null;
+  let dockOpen = false;
+  let failSig = '';
+  try { dockOpen = localStorage.getItem(OPS_OPEN_KEY) === '1'; } catch (e) { /* 忽略 */ }
+
+  function opsTickOn() {
+    if (tickTimer) return;
+    tickTimer = setInterval(function () { paintOps(); }, OPS_TICK_MS);
+  }
+  function opsTickOff() {
+    if (!tickTimer) return;
+    clearInterval(tickTimer); tickTimer = null;
+  }
+  function setDockOpen(on) {
+    dockOpen = !!on;
+    try { localStorage.setItem(OPS_OPEN_KEY, dockOpen ? '1' : '0'); } catch (e) { /* 忽略 */ }
+  }
+  /* 登记一条本地占位：label 是给人看的，match 是拿服务端标题去重用的正则源码 */
+  function pending(label, opts) {
+    opts = opts || {};
+    let re = null;
+    try { if (opts.match) re = new RegExp(String(opts.match)); } catch (e) { re = null; }
+    const t = { id: localSeq++, label: label || '正在跑', re: re, t0: Date.now(), doneAt: 0, pct: 3 };
+    localOps.push(t);
+    if (localOps.length > 8) localOps = localOps.slice(-8);
+    hideAt = 0;
+    paintOps(); opsTickOn();
     return t;
   }
   function pendingDone(t) {
     if (!t) return;
-    pendingOps = pendingOps.filter(function (x) { return x.id !== t.id; });
+    t.doneAt = Date.now();       /* 不立刻删：服务端条目可能还在路上，先走宽限期 */
     paintOps();
+  }
+  function ackOp(key) {
+    acked[key] = Date.now();
+    const ks = Object.keys(acked);
+    if (ks.length > 80) {
+      ks.sort(function (a, b) { return acked[a] - acked[b]; })
+        .slice(0, ks.length - 60).forEach(function (k) { delete acked[k]; });
+    }
+    hideAt = 0;
+    paintOps();
+  }
+  /* 进度只进不退；同一个 key 换了一次新运行（started 变了）就重新计 */
+  function pctKeep(key, pct, started) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+    const cur = pctMemo[key];
+    if (!cur || cur.started !== started) { pctMemo[key] = { v: v, started: started }; return v; }
+    if (cur.v > v) return cur.v;
+    cur.v = v;
+    return v;
+  }
+  function titleHit(t, title) {
+    if (!title) return false;
+    if (t.re) { try { return t.re.test(title); } catch (e) { return false; } }
+    return String(title).indexOf(t.label) === 0;
   }
   function opsAll() {
     const live = state.live || {};
+    const now = Date.now();
+    const drift = liveAt ? Math.max(0, (now - liveAt) / 1000) : 0;
     const out = [];
+
     Object.keys(live.ops || {}).forEach(function (k) {
       const o = live.ops[k] || {};
+      if (acked[k]) return;
+      const started = Number(o.started_at) || 0;
       out.push({
         key: k, title: o.title || k, phase: o.phase || '', note: o.note || '',
-        pct: o.pct || 0, elapsed: o.elapsed || 0, steps: o.steps || [], step: o.step || 0,
+        pct: pctKeep(k, o.pct || 0, started),
+        elapsed: Math.round((o.elapsed || 0) + (o.finished ? 0 : drift)),
+        steps: o.steps || [], step: o.step || 0,
         finished: !!o.finished, ok: o.ok !== false, error: o.error || '',
+        started: started, local: false,
       });
     });
+    /* 后端把「写作任务」登记在 jobs 里（没有 ops 条目）时也要看得见 */
     (state.liveJobs || live.jobs || []).forEach(function (j) {
+      const k = 'job:' + j.id;
+      if (acked[k]) return;
       out.push({
-        key: 'job:' + j.id, title: j.title || j.kind || '任务', phase: j.message || j.status || '',
-        note: '', pct: j.total ? Math.round(((j.done || 0) * 100) / j.total) : 0, elapsed: 0,
-        steps: [], step: 0, finished: false, ok: true, error: '',
+        key: k, title: j.title || j.kind || '任务', phase: j.message || j.status || '',
+        note: '', pct: j.total ? Math.round(((j.done || 0) * 100) / j.total) : 0,
+        elapsed: 0, steps: [], step: 0, finished: false, ok: true, error: '',
+        started: 0, local: false,
       });
     });
+    /* 只有「写作总进度」在跑、又没有单独的 ops 条目时，兜一条总的 */
     if (live.running && !out.length) {
       out.push({
-        key: 'main', title: live.job_title || '正在生成', phase: phaseLine(live), note: '',
-        pct: live.pct || 0, elapsed: live.elapsed || 0, steps: [], step: 0,
-        finished: false, ok: true, error: '',
+        key: 'main', title: live.job_title || '正在生成', phase: phaseLine(live),
+        note: '', pct: live.pct || 0, elapsed: live.elapsed || 0,
+        steps: [], step: 0, finished: false, ok: true, error: '',
+        started: 0, local: false,
       });
     }
-    if (!Object.keys(live.ops || {}).length) {
-      const now = Date.now();
-      pendingOps.forEach(function (t) {
-        if (now - t.t0 > 8000) return;
-        out.push({
-          key: 'pending:' + t.id, title: t.label, phase: '已发出，正在排队…', note: '',
-          pct: 3, elapsed: Math.round((now - t.t0) / 1000), steps: [], step: 0,
-          finished: false, ok: true, error: '',
-        });
+    /* 本地占位：服务端一出现匹配条目就让位（把进度过继过去，进度条不会回退） */
+    const keep = [];
+    localOps.forEach(function (t) {
+      let hit = null;
+      for (let i = 0; i < out.length; i++) {
+        if (titleHit(t, out[i].title)) { hit = out[i]; break; }
+      }
+      if (hit) { hit.pct = pctKeep(hit.key, Math.max(hit.pct, t.pct), hit.started); return; }
+      if (t.doneAt && (!t.re || now - t.doneAt > OPS_GRACE)) return;
+      if (now - t.t0 > OPS_STALE) return;
+      keep.push(t);
+    });
+    localOps = keep;
+    localOps.forEach(function (t) {
+      const sec = (now - t.t0) / 1000;
+      t.pct = pctKeep('local:' + t.id, Math.min(12, 3 + sec * 0.5), t.t0);
+      out.push({
+        key: 'local:' + t.id, title: t.label,
+        phase: t.doneAt ? '正在整理结果…'
+          : (sec < 6 ? '已发出，正在排队…' : '服务器还在处理，稍等…'),
+        note: '', pct: t.pct, elapsed: Math.round(sec),
+        steps: [], step: 0, finished: false, ok: true, error: '',
+        started: t.t0, local: true,
       });
-    }
+    });
+
+    /* 固定排序：失败 → 进行中 → 完成；同组按开始时间，本地占位放最后 */
+    out.sort(function (a, b) {
+      const ra = a.finished ? (a.ok ? 2 : 0) : 1;
+      const rb = b.finished ? (b.ok ? 2 : 0) : 1;
+      if (ra !== rb) return ra - rb;
+      if (a.local !== b.local) return a.local ? 1 : -1;
+      if ((a.started || 0) !== (b.started || 0)) return (a.started || 0) - (b.started || 0);
+      return String(a.key) < String(b.key) ? -1 : (String(a.key) > String(b.key) ? 1 : 0);
+    });
     return out;
   }
   function opsRowNode(o) {
@@ -861,35 +1113,81 @@ window.MZApp = (function () {
       row.appendChild(h('div.od-s', { text: [bits || '正在准备\u2026', o.note, o.error ? String(o.error).slice(0, 90) : ''].filter(Boolean).join(' · ') }));
     }
     if (o.steps && o.steps.length) row.appendChild(stepsNode(o.steps, o.step, ''));
+    if (o.finished && !o.ok) {
+      const b = h('button.btn.sm', { type: 'button', text: '知道了' });
+      b.addEventListener('click', function () { haptic('light'); ackOp(o.key); });
+      row.appendChild(h('div.btn-row', null, b));
+    }
     return row;
   }
   function paintOps() {
     const dock = $('#opsDock');
     if (!dock) return;
     const list = opsAll();
+    const body = $('#odBody');
+    const t = $('#odTitle'), sub = $('#odSub'), pct = $('#odPct'), fill = $('#odFill');
+
     if (!list.length) {
-      dock.hidden = true;
-      dock.classList.remove('on');
-      const b0 = $('#odBody');
-      if (b0) { b0.hidden = true; clear(b0); }
-      const t0 = $('#odTitle'), s0 = $('#odSub'), p0 = $('#odPct'), f0 = $('#odFill');
-      if (t0) t0.textContent = '';
-      if (s0) s0.textContent = '';
-      if (p0) p0.textContent = '0%';
-      if (f0) f0.style.width = '0%';
+      opsTickOff(); hideAt = 0; failSig = '';
+      dock.hidden = true; dock.classList.remove('on');
+      if (body) { body.hidden = true; clear(body); }
+      if (t) t.textContent = '';
+      if (sub) sub.textContent = '';
+      if (pct) pct.textContent = '0%';
+      if (fill) fill.style.width = '0%';
       return;
     }
+    opsTickOn();
+
     const running = list.filter(function (o) { return !o.finished; });
-    const head = running[0] || list[0];
-    const t = $('#odTitle'), sub = $('#odSub'), pct = $('#odPct'), fill = $('#odFill'), body = $('#odBody');
+    const failed = list.filter(function (o) { return o.finished && !o.ok; });
+
+    /* 全部结束：成功的那批显示一会儿自动收起，失败的那批留着等用户确认 */
+    if (!running.length && !failed.length) {
+      if (!hideAt) hideAt = Date.now() + OPS_LINGER;
+      if (Date.now() >= hideAt) {
+        list.forEach(function (o) { acked[o.key] = Date.now(); });
+        opsTickOff(); hideAt = 0;
+        dock.hidden = true; dock.classList.remove('on');
+        if (body) { body.hidden = true; clear(body); }
+        return;
+      }
+    } else {
+      hideAt = 0;
+    }
+
+    /* 冒出新的失败：自动展开一次，让用户当场看到原因 */
+    const fsig = failed.map(function (o) { return o.key; }).join(',');
+    if (fsig && fsig !== failSig) { failSig = fsig; dockOpen = true; }
+    if (!fsig) failSig = '';
+
+    const head = running[0] || failed[0] || list[0];
+    const multi = running.length > 1;
     dock.hidden = false;
-    if (t) t.textContent = running.length > 1 ? ('正在跑 ' + running.length + ' 项') : (head.title || '正在跑');
-    if (sub) sub.textContent = head.phase || head.note || '正在准备\u2026';
+    if (t) {
+      t.textContent = multi ? ('正在跑 ' + running.length + ' 项')
+        : (running.length ? (head.title || '正在跑')
+          : (failed.length ? ('有 ' + failed.length + ' 项失败') : '已完成'));
+    }
+    if (sub) {
+      sub.textContent = running.length
+        ? (multi ? (head.title + ' · ' + (head.phase || '进行中')) : (head.phase || head.note || '正在准备\u2026'))
+        : (failed.length ? '点开看原因' : (head.phase || '全部完成'));
+    }
     if (pct) pct.textContent = Math.round(head.pct || 0) + '%';
     if (fill) fill.style.width = Math.max(2, Math.min(100, head.pct || 0)) + '%';
-    if (body && !body.hidden) {
-      clear(body);
-      list.forEach(function (o) { body.appendChild(opsRowNode(o)); });
+
+    dock.classList.toggle('on', dockOpen);
+    if (body) {
+      if (dockOpen) {
+        const keepTop = body.scrollTop;
+        clear(body);
+        list.forEach(function (o) { body.appendChild(opsRowNode(o)); });
+        body.hidden = false;
+        body.scrollTop = keepTop;
+      } else {
+        body.hidden = true;
+      }
     }
   }
 
@@ -898,8 +1196,12 @@ window.MZApp = (function () {
     const dock = $('#islandDock');
     if (!dock) return;
     const live = state.live || {};
-    if (!liveBusy(live)) { dock.hidden = true; return; }
+    /* 灵动岛只回答「书写得怎么样了」。单纯的章节检查 / 评分不该在这里冒充写作进度，
+       那些长操作交给底部那条全局任务条（#opsDock）显示，两条各有各的分工。 */
+    const writing = !!(live.running || (live.books || []).length);
+    if (!writing) { dock.hidden = true; return; }
     const pct = Math.max(0, Math.min(100, Number(live.pct) || 0));
+
     const t = $('#idTitle'), sb = $('#idSub'), pc = $('#idPct'), fl = $('#idFill');
     if (t) t.textContent = live.job_title || '正在跑';
     if (sb) sb.textContent = phaseLine(live);
@@ -912,7 +1214,15 @@ window.MZApp = (function () {
     if (!b) return;
     const live = state.live || {};
     const q = live.queue || {};
-    const n = (q.active || 0) + (q.queued || (q.waiting || []).length || 0);
+    /* 角标要反映「一共还有几件事没跑完」：模型队列 + 正在跑的功能 + 排队中的写作任务，
+       只看模型队列的话，跑一个不占模型的本地检查时角标是空的。 */
+    const ops = live.ops || {};
+    const opsN = Object.keys(ops).filter(function (k) { return !(ops[k] || {}).finished; }).length;
+    const jobsN = (state.liveJobs || []).filter(function (j) {
+      return j.status === 'running' || j.status === 'queued';
+    }).length;
+    const n = Math.max((q.active || 0) + (q.queued || (q.waiting || []).length || 0), opsN + jobsN);
+
     if (n > 0) { b.hidden = false; b.textContent = n > 99 ? '99+' : String(n); }
     else b.hidden = true;
   }
@@ -924,9 +1234,14 @@ window.MZApp = (function () {
          表现就是「轮询一刷新，进度条就没了」。这里必须拆包。 */
       state.live = (d && d.live) ? d.live : (d || {});
       state.liveJobs = (d && d.jobs) || [];
+      liveAt = Date.now();   /* 本地按时长推算「已用时」的基准点 */
       paintDock(); paintBadge(); paintOps();
       return state.live;
-    } catch (e) { paintDock(); return null; }
+    } catch (e) {
+      /* 断网也要重绘：本地占位还在走时，任务条不该跟着僵住 */
+      paintDock(); paintOps(); return null;
+    }
+
   }
   async function refreshAll(showToast) {
     try { await loadHero(); } catch (e) { if (showToast) toast(e.message, 'bad'); }
@@ -1031,6 +1346,8 @@ window.MZApp = (function () {
 
   /* ============================== 启动 ============================== */
   let liveTimer = null;
+  let pollBound = false;
+
   function paintIcons() {
     $$('.tb-ico[data-ico]').forEach(function (el) {
       clear(el);
@@ -1045,7 +1362,9 @@ window.MZApp = (function () {
   }
   function pollLive(delay) {
     liveTimer = setTimeout(async function () {
-      if (document.hidden) { pollLive(4000); return; }
+      /* 退到后台就降到低频兜底（iOS 本来也会挂起定时器），回前台由下方
+         visibilitychange 立刻补一次，省电也更稳。 */
+      if (document.hidden) { pollLive(6000); return; }
       await refreshLive();
       if (state.tab === 'jobs' || (state.tab === 'overview' && liveBusy(state.live))) render();
       pollLive(liveBusy(state.live) ? 1600 : 4000);
@@ -1054,7 +1373,14 @@ window.MZApp = (function () {
   function startTimer() {
     if (liveTimer) { clearTimeout(liveTimer); clearInterval(liveTimer); }
     pollLive(900);
+    if (!pollBound) {
+      pollBound = true;
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) refreshLive();   /* 回到前台：不等定时器，立刻对齐真实状态 */
+      });
+    }
   }
+
   function hideSplash() {
     const s = $('#splash');
     if (!s) return;
@@ -1069,12 +1395,11 @@ window.MZApp = (function () {
     if (nb) nb.addEventListener('click', function () { haptic('light'); pop(); });
     const dock = $('#islandDock');
     if (dock) dock.addEventListener('click', function () { haptic('light'); switchTab('jobs'); });
-    const od = $('#opsDock'), odTop = $('#odTop'), odBody = $('#odBody');
-    if (odTop && odBody) {
+    const odTop = $('#odTop');
+    if (odTop) {
       odTop.addEventListener('click', function () {
         haptic('light');
-        odBody.hidden = !odBody.hidden;
-        od.classList.toggle('on', !odBody.hidden);
+        setDockOpen(!dockOpen);   /* 折叠偏好记到本地：重绘不会又把抽屉弹回去 */
         paintOps();
       });
     }
@@ -1119,6 +1444,7 @@ window.MZApp = (function () {
     applyTheme: applyTheme, getTheme: getTheme, showLogin: showLogin, doLogin: doLogin,
     pick: pick, li: li, card: card, kpi: kpi, buttons: buttons, seg: seg, bar: barOf,
     span: span, txt: txt, busySheet: busySheet, startJob: startJob, newNovel: newNovel,
+    newNovelMenu: newNovelMenu, importNovel: importNovel, removeNovels: removeNovels, exportNovel: exportNovel,
     runDaily: runDaily, stopAll: stopAll, stagger: stagger, topline: topline,
     askUpdate: askUpdate, askRewrite: askRewrite, bookHitReview: bookHitReview,
     liveBusy: liveBusy, phaseLine: phaseLine, emptyBox: emptyBox, loadingBox: loadingBox, errBox: errBox,
