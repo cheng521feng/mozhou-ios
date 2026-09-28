@@ -9,7 +9,7 @@
    --p    进度环 0~100（fx.css 里用 @property 注册过，能平滑转）
    --i    入场错峰序号
    --line / --line-soft / --panel2   内联样式会直接引用
-   状态类：body.light .rise .on .gone .hidden [hidden] .scrolled .no-large
+   状态类：html.light .rise .on .gone .hidden [hidden] .scrolled .no-large
            .screen-fade .screen-push .screen-back .k4 .flat .static .tap
    ========================================================================== */
 
@@ -83,7 +83,7 @@ a { color: var(--accent); text-decoration: none; }
   --gap: 14px;
   color-scheme: dark;
 }
-body.light {
+html.light {
   --bg: #eef2f8;
   --bg-deep: #e6ecf5;
   --text: #0f1729;
@@ -133,7 +133,7 @@ body.light {
   content: ''; position: absolute; inset: 0;
   background: radial-gradient(120% 80% at 50% 0%, transparent 42%, var(--bg) 88%);
 }
-body.light .aurora { opacity: .55; filter: blur(18px) saturate(120%); }
+html.light .aurora { opacity: .55; filter: blur(18px) saturate(120%); }
 
 /* ============================== 应用骨架 ============================== */
 .app { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; }
@@ -348,7 +348,7 @@ body.light .aurora { opacity: .55; filter: blur(18px) saturate(120%); }
   border-color: transparent; color: #04150f;
   box-shadow: 0 16px 32px -18px color-mix(in srgb, var(--accent) 70%, transparent);
 }
-body.light .btn.primary { color: #fff; }
+html.light .btn.primary { color: #fff; }
 .btn.danger { background: color-mix(in srgb, var(--red) 16%, transparent); border-color: color-mix(in srgb, var(--red) 32%, transparent); color: var(--red); }
 .btn.ghost { background: transparent; }
 .btn.blue { background: color-mix(in srgb, var(--blue) 15%, transparent); border-color: color-mix(in srgb, var(--blue) 30%, transparent); color: var(--blue); }
@@ -599,9 +599,9 @@ hr.sep { border: 0; border-top: 1px solid var(--line-soft); margin: 14px 0; }
 .main::-webkit-scrollbar { width: 0; height: 0; }
 .sheet-body::-webkit-scrollbar, .ev-list::-webkit-scrollbar { width: 4px; }
 .sheet-body::-webkit-scrollbar-thumb, .ev-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
-body.light .splash { background: radial-gradient(80% 60% at 50% 34%, rgba(18, 185, 129, .12), transparent 70%), var(--bg-deep); }
-body.light .kpi::after { opacity: .6; }
-body.light .aurora::after { background: radial-gradient(120% 80% at 50% 0%, transparent 46%, var(--bg) 92%); }
+html.light .splash { background: radial-gradient(80% 60% at 50% 34%, rgba(18, 185, 129, .12), transparent 70%), var(--bg-deep); }
+html.light .kpi::after { opacity: .6; }
+html.light .aurora::after { background: radial-gradient(120% 80% at 50% 0%, transparent 46%, var(--bg) 92%); }
 
 @media (min-width: 700px) {
   .pad { padding: 6px 22px 10px; max-width: 760px; margin: 0 auto; }
@@ -622,7 +622,7 @@ body.light .aurora::after { background: radial-gradient(120% 80% at 50% 0%, tran
   color: #04150f; font-weight: 650; border-color: transparent;
   background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 92%, #fff 8%), color-mix(in srgb, var(--accent) 78%, #000 10%));
 }
-body.light .pillbar button.on { color: #fff; }
+html.light .pillbar button.on { color: #fff; }
 
 /* ============================== 补漏（保证类名契约完整） ============================== */
 /* 独立的点：任务页「当前没有任务」等地方会单独用 .dot */
@@ -741,7 +741,7 @@ body.light .pillbar button.on { color: #fff; }
   color: #041018; border-color: transparent;
   background: linear-gradient(145deg, color-mix(in srgb, var(--accent2) 94%, #fff 6%), color-mix(in srgb, var(--accent2) 76%, #000 12%));
 }
-body.light .tb.primary, body.light .tb.blue { color: #fff; }
+html.light .tb.primary, html.light .tb.blue { color: #fff; }
 
 /* ============================== 检查面板 ============================== */
 .insp-head { position: sticky; top: 0; z-index: 3; padding-bottom: 4px; }
@@ -813,6 +813,20 @@ textarea.inp { min-height: 76px; resize: vertical; line-height: 1.7; }
 }
 .sw.on { background: color-mix(in srgb, var(--accent) 84%, transparent); border-color: transparent; }
 .sw.on i { transform: translateX(18px); background: #04150f; opacity: 1; }
+
+.chk {
+  flex: 0 0 auto; width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center;
+  background: var(--panel2); border: 1.5px solid var(--line); color: transparent;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease;
+}
+.chk.on { background: var(--accent); border-color: transparent; color: #04150f; }
+.chk svg { width: 14px; height: 14px; }
+.mini {
+  flex: 0 0 auto; height: 28px; padding: 0 10px; border-radius: 10px;
+  font-size: 12.5px; font-weight: 560; white-space: nowrap;
+  background: var(--panel2); border: 1px solid var(--line-soft); color: var(--muted);
+}
+.mini:active { background: var(--press); }
 
 /* 作品页头（封面 + 信息竖排） */
 .bk-head { display: flex; gap: 13px; align-items: flex-start; margin-bottom: 2px; }
