@@ -1282,6 +1282,10 @@ window.MZApp = (function () {
   }
 
   /* ============================== 登录 ============================== */
+  /* 密码眼睛的两个图标 */
+  const EYE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 12S6.2 5.8 12 5.8 21.4 12 21.4 12 17.8 18.2 12 18.2 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="3.2"/></svg>';
+  const OFF_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 3.2 20.8 20.8"/><path d="M10.5 6.3A9.9 9.9 0 0 1 12 6.2c5.8 0 9.4 5.8 9.4 5.8a17.6 17.6 0 0 1-2.5 3.2"/><path d="M6.5 8A16.4 16.4 0 0 0 2.6 12s3.6 6.2 9.4 6.2a9.7 9.7 0 0 0 3.5-.7"/><path d="M9.9 9.9a3.2 3.2 0 0 0 4.3 4.3"/></svg>';
+
   function hasAuth() {
     try { if (localStorage.getItem('mz_gw')) return true; } catch (e) { /* 忽略 */ }
     return !!MZ.getToken();
@@ -1319,11 +1323,11 @@ window.MZApp = (function () {
           welcome: !!d.welcome, masked: d.masked || '', phone: d.phone || '',
         };
         showApp();
+        /* 欢迎页先盖上来，书稿在后面照常载入；点一下或几秒后自己退场 */
+        const wp = showWelcome();
         await refreshAll(false);
         startTimer();
-        if (state.profile.name) {
-          toast((state.profile.welcome ? '欢迎你，' : '欢迎回来，') + state.profile.name, 'ok');
-        }
+        await wp;
         return true;
       }
       throw new Error((d && (d.error || d.msg)) || '登录失败，请检查用户名和密码');
@@ -1351,6 +1355,67 @@ window.MZApp = (function () {
     ['#lgUser', '#lgPass'].forEach(function (sel) {
       const el = $(sel);
       if (el) el.addEventListener('input', function () { const e = $('#loginErr'); if (e) e.hidden = true; });
+    });
+    bindEye();
+  }
+
+  /* 密码眼睛：点一下在「•••」和明文之间切换，防止输错 */
+  function bindEye() {
+    const pw = $('#lgPass'), eye = $('#lgEye');
+    if (!pw || !eye) return;
+    eye.innerHTML = EYE_SVG;
+    eye.addEventListener('click', function () {
+      const show = pw.type === 'password';
+      pw.type = show ? 'text' : 'password';
+      eye.innerHTML = show ? OFF_SVG : EYE_SVG;
+      eye.className = 'eye' + (show ? ' on' : '');
+      eye.setAttribute('aria-label', show ? '隐藏密码' : '显示密码');
+      eye.title = eye.getAttribute('aria-label');
+      try { pw.focus(); const n = pw.value.length; pw.setSelectionRange(n, n); } catch (e) { /* 忽略 */ }
+    });
+  }
+
+  /* 开屏欢迎页：头像 + 「欢迎回来」+ 名字。资料拉不到也照常显示，不许卡住。 */
+  function showWelcome() {
+    const el = $('#welcome');
+    if (!el) return Promise.resolve();
+    const p = state.profile || {};
+    const nm = p.name || p.username || '';
+    const hi = $('#wcHi'), nameEl = $('#wcName'), av = $('#wcAv'), sub = $('#wcSub');
+    if (hi) hi.textContent = p.welcome ? '欢迎你' : '欢迎回来';
+    if (nameEl) nameEl.textContent = nm || '我的书稿';
+    if (av) {
+      clear(av);
+      if (p.avatar_url) {
+        const im = h('img', { src: MZ.img(p.avatar_url), alt: '' });
+        im.addEventListener('error', function () {   /* 头像读不出来就退回名字首字 */
+          clear(av);
+          av.appendChild(document.createTextNode(String(nm || '墨').slice(0, 1)));
+        });
+        av.appendChild(im);
+      } else av.appendChild(document.createTextNode(String(nm || '墨').slice(0, 1)));
+    }
+    if (sub) {
+      const info = [p.gender, p.age ? p.age + ' 岁' : ''].filter(function (x) { return x; }).join(' · ');
+      sub.textContent = p.welcome ? '资料还空着，去「我的」补一下'
+        : (info ? info + '　·　正在载入书稿…' : '正在载入你的书稿…');
+    }
+    el.hidden = false;
+    /* 网关会往页面里塞一个右上角账号胶囊，它的 z-index 比这层还高，
+       欢迎页盖全屏时先让它收起来，别浮在头像上面。 */
+    document.body.classList.add('wc-open');
+    return new Promise(function (resolve) {
+      let done = false;
+      function finish() {
+        if (done) return;
+        done = true;
+        el.removeEventListener('click', finish);
+        document.body.classList.remove('wc-open');
+        el.classList.add('out');
+        setTimeout(function () { el.hidden = true; el.classList.remove('out'); resolve(); }, 400);
+      }
+      el.addEventListener('click', finish);
+      setTimeout(finish, 2600);
     });
   }
 
@@ -1466,8 +1531,30 @@ window.MZApp = (function () {
     applyTheme(getTheme());
     watchTheme();
 
-    if (!hasAuth()) { showLogin(); hideSplash(); return; }
+    /* 登录页跳过来会带 ?welcome=1：进门先露一下脸，顺便把地址还原干净 */
+    const wantWelcome = /[?&]welcome=1\b/.test(location.search || '');
+    if (wantWelcome) {
+      try { history.replaceState(null, '', location.pathname + (location.hash || '')); } catch (e) { /* 忽略 */ }
+    }
 
+    if (hasAuth()) { enterApp(wantWelcome); return; }
+
+    /* 浏览器里可能已经是「网关登录过」的状态（Cookie 还在）：先问一声，能拿到资料就直接进。
+       否则表现就是「刚在登录页输完账号密码，进来又要输一遍」。
+       装机版 App 跑在 capacitor://localhost，没有 Cookie，这一问会 401，照旧弹登录卡。 */
+    let webOrigin = false;
+    try { webOrigin = /^https?:$/.test(location.protocol); } catch (e) { webOrigin = false; }
+    if (!webOrigin) { showLogin(); hideSplash(); return; }
+    api.get('/api/mz/profile').then(function (d) {
+      if (d && d.ok && d.profile) {
+        state.profile = d.profile;
+        enterApp(wantWelcome);
+      } else { showLogin(); hideSplash(); }
+    }).catch(function () { showLogin(); hideSplash(); });
+  }
+
+  /* 真正进主界面：本地会话和「网关 Cookie 会话」都走这里 */
+  function enterApp(wantWelcome) {
     showApp();
     go('overview');
     const main = $('#main');
@@ -1491,8 +1578,13 @@ window.MZApp = (function () {
       if (t.clientX - sx > 70 && Math.abs(t.clientY - sy) < 60) pop();
     }, { passive: true });
 
+    /* 欢迎页要名字和头像，所以先把资料拉回来再画 */
+    const wp = wantWelcome
+      ? loadProfile().then(function () { return showWelcome(); })
+      : null;
     refreshAll(false).then(hideSplash, hideSplash);
     startTimer();
+    if (wp) wp.catch(function () { /* 欢迎页出问题也不能挡着进主界面 */ });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
