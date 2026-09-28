@@ -486,24 +486,21 @@
     }
     return have;
   }
-  /* 角色分配（复刻后端 writer._assign_roles） */
+  /* 角色分配（复刻后端 writer._assign_roles；勾了 DeepSeek 就由它主写） */
   function assignRoles(sel) {
     if (!sel.length) return { plan: 'doubao', write: 'doubao', review: 'doubao', polish: 'doubao' };
     if (sel.length === 1) {
       const m = sel[0];
       return { plan: m, write: m, review: m, polish: m };
     }
-    if (sel.length === 2) {
-      if (sel.indexOf('doubao') >= 0 && sel.indexOf('deepseek') >= 0) {
-        return { plan: 'doubao', write: 'doubao', review: 'deepseek', polish: 'deepseek' };
-      }
-      if (sel.indexOf('mimo') >= 0 && sel.indexOf('deepseek') >= 0) {
-        return { plan: 'mimo', write: 'mimo', review: 'deepseek', polish: 'deepseek' };
-      }
-      return { plan: 'doubao', write: 'mimo', review: 'mimo', polish: 'doubao' };
+    if (sel.indexOf('deepseek') >= 0) {
+      const other = sel.indexOf('doubao') >= 0 ? 'doubao' : 'mimo';
+      const review = sel.length >= 3 ? 'mimo' : other;
+      return { plan: other, write: 'deepseek', review: review, polish: 'deepseek' };
     }
-    return { plan: 'doubao', write: 'mimo', review: 'deepseek', polish: 'deepseek' };
+    return { plan: 'doubao', write: 'mimo', review: 'mimo', polish: 'doubao' };
   }
+
   function roleHint(s, act) {
     const gs = String(s.gen_strategy || '').trim();
     if (MODELS.indexOf(gs) >= 0) {
@@ -514,11 +511,16 @@
       return '只勾了 1 个模型，从策划、写作到审查、润色全交给 ' + mLabel(act[0])
         + ' 一个人干。勾 2 个会分成「写的」和「审的」，勾 3 个各干各拿手的。';
     }
+    if (act.indexOf('deepseek') >= 0) {
+      return '勾了 DeepSeek 就由它主写：从落笔到润色都是这一支笔，语气和节奏接得上；'
+        + '点子和挑毛病交给别的模型。';
+    }
     if (act.length === 2) {
       return '两个模型分工：一个负责想点子和落笔，一个负责挑毛病和润色。再勾上一个就变成三个各干各拿手的。';
     }
-    return '三个模型各干各拿手的：豆包出点子、MiMo 落笔、DeepSeek 挑毛病兼润色。';
+    return '三个模型各干各拿手的。';
   }
+
 
   /* ---- 读写设置 ---- */
   async function putSettings(patch, msg) {
