@@ -1335,14 +1335,55 @@ window.MZApp = (function () {
     });
   }
 
-  /* ============================== 主题 ============================== */
-  function applyTheme(t) {
-    document.body.classList.toggle('light', t === 'light');
-    const meta = document.querySelector('meta[name=theme-color]');
-    if (meta) meta.setAttribute('content', t === 'light' ? '#eef2f8' : '#0a0e15');
-    try { localStorage.setItem('mz_theme', t); } catch (e) { /* 忽略 */ }
+  /* ============================== 主题 ==============================
+     三档：跟随系统 / 浅色 / 深色。默认跟随系统——手机切到深色，App 跟着切。
+     主题类挂在 <html> 上（style.css 用 html.light）：这样 main.html 里一段
+     内联脚本能在首次绘制前就把类打上，冷启动不会先闪一下白/黑。 */
+  const THEME_KEY = 'mz_theme';
+  const THEMES = ['system', 'light', 'dark'];
+  let sysLight = null;
+  function systemPrefersLight() {
+    if (sysLight !== null) return sysLight;
+    try { sysLight = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches); }
+    catch (e) { sysLight = false; }
+    return sysLight;
   }
-  function getTheme() { return document.body.classList.contains('light') ? 'light' : 'dark'; }
+  /* 读用户的选择；system/light/dark；旧版本没存过就当跟随系统 */
+  function themePref() {
+    let t = null;
+    try { t = localStorage.getItem(THEME_KEY); } catch (e) { /* 忽略 */ }
+    return THEMES.indexOf(t) >= 0 ? t : 'system';
+  }
+  /* 眼下到底是浅色还是深色（把跟随系统算进去） */
+  function isLightTheme() {
+    const t = themePref();
+    return t === 'light' || (t === 'system' && systemPrefersLight());
+  }
+  function paintTheme() {
+    const light = isLightTheme();
+    document.documentElement.classList.toggle('light', light);
+    const meta = document.querySelector('meta[name=theme-color]');
+    if (meta) meta.setAttribute('content', light ? '#eef2f8' : '#0a0e15');
+    return light;
+  }
+  function applyTheme(t) {
+    const pref = THEMES.indexOf(t) >= 0 ? t : 'system';
+    try { localStorage.setItem(THEME_KEY, pref); } catch (e) { /* 忽略 */ }
+    return paintTheme();
+  }
+  function getTheme() { return themePref(); }
+  /* 系统外观变了：只有选了「跟随系统」时才跟着重画 */
+  function watchTheme() {
+    try {
+      const mq = window.matchMedia('(prefers-color-scheme: light)');
+      const on = function () {
+        sysLight = mq.matches;
+        if (themePref() === 'system') paintTheme();
+      };
+      if (mq.addEventListener) mq.addEventListener('change', on);
+      else if (mq.addListener) mq.addListener(on);
+    } catch (e) { /* 忽略 */ }
+  }
 
   /* ============================== 启动 ============================== */
   let liveTimer = null;
@@ -1403,7 +1444,8 @@ window.MZApp = (function () {
         paintOps();
       });
     }
-    applyTheme(localStorage.getItem('mz_theme') || 'dark');
+    applyTheme(getTheme());
+    watchTheme();
 
     if (!hasAuth()) { showLogin(); hideSplash(); return; }
 
@@ -1441,7 +1483,8 @@ window.MZApp = (function () {
     render: render, push: push, pop: pop, switchTab: switchTab, go: go,
     loadHero: loadHero, ensureHero: ensureHero, refreshAll: refreshAll, refreshLive: refreshLive,
     findNovel: findNovel, openBook: openBook, openTokenDialog: openTokenDialog,
-    applyTheme: applyTheme, getTheme: getTheme, showLogin: showLogin, doLogin: doLogin,
+    applyTheme: applyTheme, getTheme: getTheme, themePref: themePref, isLightTheme: isLightTheme,
+    showLogin: showLogin, doLogin: doLogin,
     pick: pick, li: li, card: card, kpi: kpi, buttons: buttons, seg: seg, bar: barOf,
     span: span, txt: txt, busySheet: busySheet, startJob: startJob, newNovel: newNovel,
     newNovelMenu: newNovelMenu, importNovel: importNovel, removeNovels: removeNovels, exportNovel: exportNovel,
