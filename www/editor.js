@@ -369,8 +369,9 @@ window.MZEditor = (function () {
     function paintSel() {
       const a = textArea.selectionStart, b = textArea.selectionEnd;
       const r = (b - a >= 2) ? paraRange(textArea.value, a, b) : null;
-      if (!r) { selBar.hidden = true; return; }
+      if (!r) { selBar.hidden = true; syncDockLift(); return; }
       selBar.hidden = false;
+      syncDockLift();
       selInfo.textContent = '已选 ' + rangeLabel(r) + ' · ' + (b - a) + ' 字';
       selBtns[0].disabled = false; selBtns[1].disabled = false; selBtns[2].disabled = false;
     }
@@ -404,6 +405,18 @@ window.MZEditor = (function () {
     tb('更多', '', 'more', function () { moreActions(); });
 
     wrap.appendChild(nav); wrap.appendChild(bodyBox); wrap.appendChild(selBar); wrap.appendChild(toolbar);
+
+    /* 全局任务条是 body 级的 fixed 条，默认贴在标签栏上方；
+       写作台没有标签栏，但底部有自己的工具条 + 选中条 —— 量出它们的高度，
+       让任务条抬到上面去，别把工具条盖住。 */
+    function syncDockLift() {
+      const tb = (toolbar.getBoundingClientRect().height || 0);
+      const sb = selBar.hidden ? 0 : (selBar.getBoundingClientRect().height || 0);
+      document.documentElement.style.setProperty('--dock-bottom', Math.round(tb + sb + 12) + 'px');
+    }
+    syncDockLift();
+    window.addEventListener('resize', syncDockLift);
+    window.addEventListener('orientationchange', function () { setTimeout(syncDockLift, 260); });
 
     /* ---- 载入 ---- */
     async function load() {
@@ -502,10 +515,13 @@ window.MZEditor = (function () {
         else toast('自动保存失败，请手动点「保存」', 'bad');
       } finally { if (ed) { ed.saving = false; paintMeta(); } }
     }
-    /* ============== 长操作：进度交给全局任务条（服务端 ops，刷新/切页都不丢） ============== */
+    /* ============== 长操作：进度交给全局任务条（服务端 ops，刷新/切页都不丢） ==============
+       label 是任务条上先显示的文字；match 是「服务端那条 ops 的标题长什么样」的正则源码。
+       两者对不上就会同一条任务显示成两行，所以下面每个按钮都把 match 写清楚。
+       没有 match 的操作（改写、一致性检查）服务端不登记 ops，任务条就只显示本地占位。 */
     async function runOp(label, path, opts) {
       opts = opts || {};
-      const token = A.pending(label);
+      const token = A.pending(label, { match: opts.match });
       try {
         return await api.post(path, opts.body || {}, { timeout: opts.timeout || 900000 });
       } finally {
@@ -518,10 +534,13 @@ window.MZEditor = (function () {
     const CHECK_LABEL = { compliance: '合规预检', hook: '章末钩子体检', reader: '读者视角模拟', consistency: '一致性检查' };
     const CHECK_PATH = { compliance: '/compliance', hook: '/hook', reader: '/reader_sim', consistency: '/consistency_check' };
     const CHECK_RENDER = { compliance: complianceNode, hook: hookNode, reader: readerNode, consistency: consistencyNode };
+    /* 一致性检查是本地规则跑的，服务端不登记 ops，所以这里没有 match */
+    const CHECK_MATCH = { compliance: '合规预检', hook: '章末钩子体检', reader: '读者视角模拟' };
 
     async function runCheck(kind) {
       const res = await runOp(CHECK_LABEL[kind], '/api/chapter/' + cid + CHECK_PATH[kind], {
         body: (kind === 'hook' || kind === 'reader') ? { force: true } : {},
+        match: CHECK_MATCH[kind],
       });
       ed.check[kind] = res;
       toast(CHECK_LABEL[kind] + ' 完成', 'ok');
@@ -538,7 +557,8 @@ window.MZEditor = (function () {
     async function runHit(range) {
       const body = range ? { start: range.start, end: range.end, force: true } : { force: false };
       const res = await runOp(range ? '评分选中段' : '三模型爆款评分',
-        '/api/chapter/' + cid + '/hit_review', { body: body, timeout: 900000 });
+        '/api/chapter/' + cid + '/hit_review',
+        { body: body, timeout: 900000, match: range ? '评分选中段' : '三模型评分' });
       let agg = res;
       if (res && res.review) agg = res.review.result || res.review;
       if (res && res.result) agg = res.result;
@@ -654,7 +674,7 @@ window.MZEditor = (function () {
         : '重生成整章：会覆盖当前正文（原内容会存档，可回滚）。继续？',
         { okText: '继续', danger: true });
       if (!ok) return;
-      const res = await runOp('重生成整章', '/api/chapter/' + cid + '/regen', {});
+      const res = await runOp('重生成整章', '/api/chapter/' + cid + '/regen', { match: '整章重生成' });
       toast((res && res.msg) || '重生成完成', 'ok');
       haptic('success');
       await load();
@@ -662,13 +682,13 @@ window.MZEditor = (function () {
     async function deai() {
       const ok = await confirm('去 AI 化：会把「像 AI 写的」段落重写一遍，原内容会存档可回滚。继续？', { okText: '继续' });
       if (!ok) return;
-      const res = await runOp('去 AI 化', '/api/chapter/' + cid + '/deai', {});
+      const res = await runOp('去 AI 化', '/api/chapter/' + cid + '/deai', { match: '去\\s*AI\\s*化' });
       toast((res && res.msg) || '去 AI 化完成', 'ok');
       haptic('success');
       await load();
     }
     async function autoTitle() {
-      const res = await runOp('AI 起名', '/api/chapter/' + cid + '/title', {});
+      const res = await runOp('AI 起名', '/api/chapter/' + cid + '/title', { match: 'AI\\s*命名本章' });
       const t = (res && (res.title || res.result || res.msg)) || '';
       if (t && String(t).length <= 30) { titleInput.value = String(t); onEdit(); haptic('success'); toast('已起名：' + t, 'ok'); }
       else toast('已生成建议，去检查面板看看', 'ok');
@@ -790,7 +810,7 @@ window.MZEditor = (function () {
           A._btn('用当前正文重新质检', 'primary', function () {
             guard((async function () {
               await save(false);
-              const r = await runOp('重新质检本章', '/api/chapter/' + cid + '/analyze', {});
+              const r = await runOp('重新质检本章', '/api/chapter/' + cid + '/analyze', { match: '重新质检' });
               if (ed) { ed.data.metrics = r.metrics; paintMeta(); }
               toast('已重新质检', 'ok');
               refreshInspect();
@@ -893,6 +913,7 @@ window.MZEditor = (function () {
       inspector = null;
       ed = null;
       document.body.style.overflow = '';
+      document.documentElement.style.removeProperty('--dock-bottom');
       if (w && w.parentNode) w.parentNode.removeChild(w);
       A.render();
     }
