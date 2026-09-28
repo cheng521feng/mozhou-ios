@@ -170,6 +170,7 @@
         bl.appendChild(li({ ico: 'cloud', title: '立即备份数据库', sub: '备份存在云服务器上', arrow: true, onTap: doBackup }));
         bl.appendChild(li({ ico: 'history', title: '查看备份列表', arrow: true, onTap: showBackups }));
         bl.appendChild(li({ ico: 'download', title: '导出这本书', sub: '选一本导成 txt', arrow: true, onTap: pickExport }));
+        bl.appendChild(li({ ico: 'trash', title: '回收站', sub: '删掉的作品 / 章节在这里，能恢复', arrow: true, onTap: showTrash }));
         out.appendChild(bl);
 
         /* 应用与显示 */
@@ -288,6 +289,77 @@
       toast('已下载', 'ok');
     } catch (e) { toast('导出失败：' + e.message, 'bad'); }
   }
+  /* ============================== 回收站 ==============================
+     书架 / 作品页删掉的东西都先进这里：能恢复，也能彻底删掉。
+     没有这个入口的话，「删除」在手机上就是个单向门——所以它跟删除是一套的。 */
+  const TRASH_KIND = { novel: '整本作品', chapter: '章节', novel_all_chapters: '重写前的整本备份' };
+  async function showTrash() {
+    const s = sheet({ title: '回收站', build: function (b) { b.appendChild(loadingBox()); } });
+    let items = [];
+    try {
+      const r = await api.get('/api/trash');
+      items = r.items || [];
+    } catch (e) { clear(s.body); s.body.appendChild(errBox(e)); return; }
+
+    const drop = function (id) {
+      items = items.filter(function (y) { return y.id !== id; });
+      paint();
+    };
+    const paint = function () {
+      clear(s.body);
+      if (!items.length) {
+        s.body.appendChild(emptyBox('trash', '回收站是空的', '在书架或作品页删掉的东西会先放这里，随时能恢复'));
+        return;
+      }
+      s.body.appendChild(h('div.fld-hint', { text: '点一条就能恢复或者彻底删掉。彻底删掉之后就找不回来了。' }));
+      const l = h('div.list');
+      items.forEach(function (x) {
+        const kind = TRASH_KIND[x.kind] || x.kind || '记录';
+        l.appendChild(li({
+          ico: x.kind === 'novel' ? 'books' : 'file',
+          title: x.label || kind,
+          sub: kind + (x.created_at ? ' · ' + timeAgo(x.created_at) : ''),
+          right: h('span', { text: '恢复 / 删除' }),
+          arrow: true,
+          onTap: function () { trashMenu(x, drop); },
+        }));
+      });
+      s.body.appendChild(l);
+    };
+    paint();
+  }
+  function trashMenu(x, drop) {
+    MZ.actions([
+      { label: '恢复回来', icon: 'history', onPick: function () { restoreTrash(x, drop); } },
+      { label: '彻底删除', icon: 'trash', danger: true, sub: '删掉就找不回来了', onPick: function () { purgeTrash(x, drop); } },
+    ], { title: x.label || '回收站记录' });
+  }
+  async function restoreTrash(x, drop) {
+    const ok = await confirm('把「' + (x.label || '') + '」恢复回来？', { okText: '恢复' });
+    if (!ok) return;
+    toast('正在恢复…');
+    try {
+      const r = await api.post('/api/trash/restore', { id: x.id });
+      let extra = '';
+      if (r && r.title) extra = '《' + r.title + '》';
+      else if (r && r.idx) extra = '第 ' + r.idx + ' 章';
+      toast('已恢复' + extra, 'ok');
+      haptic('success');
+      await A.loadHero();
+      drop(x.id);
+    } catch (e) { toast(e.message, 'bad'); }
+  }
+  async function purgeTrash(x, drop) {
+    const ok = await confirm('彻底删除「' + (x.label || '') + '」？这一步之后找不回来了。', { danger: true, okText: '彻底删除' });
+    if (!ok) return;
+    toast('正在删除…');
+    try {
+      await api.post('/api/trash/purge', { id: x.id });
+      toast('已彻底删除', 'ok');
+      drop(x.id);
+    } catch (e) { toast(e.message, 'bad'); }
+  }
+
   function showInstallGuide() {
     sheet({
       title: '装到手机桌面',
