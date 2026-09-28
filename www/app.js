@@ -513,9 +513,9 @@ window.MZApp = (function () {
     return state.profile;
   }
   function findNovel(nid) { return state.novels.filter(function (n) { return n.id === nid; })[0] || null; }
-  /* 账号资料里的名字：新建作品时当默认作者名（拿不到就留空，让用户自己填）。
-     以前新建作品不带作者，后端会写死「峰头哥」—— 封面还会把它画进图里。 */
-  function myName() { return (state.profile && (state.profile.name || state.profile.username)) || ''; }
+  /* 作品上的作者名：只跟「笔名」走，笔名没填才退回用户名。
+     这样改用户名不会动到已写的书，也不会把登录名印到封面和导出的 txt 上。 */
+  function myName() { return (state.profile && (state.profile.pen_name || state.profile.name || state.profile.username)) || ''; }
   function planNeed(n) {
     const p = n.plan || {};
     if (p.need !== undefined && p.need !== null) return Math.max(0, Number(p.need) || 0);
@@ -1429,7 +1429,7 @@ window.MZApp = (function () {
         MZ.setSession(d.token);
         /* 登录响应里就带着资料，先摆上，免得"我的"页先空一下 */
         state.profile = {
-          name: d.name || '', username: d.username || '', gender: d.gender || '',
+          name: d.name || '', username: d.username || '', pen_name: d.pen_name || '', gender: d.gender || '',
           age: d.age || '', avatar: !!d.avatar, avatar_url: d.avatar_url || '',
           welcome: !!d.welcome, masked: d.masked || '', phone: d.phone || '',
         };
@@ -1571,7 +1571,7 @@ window.MZApp = (function () {
       if (timer) { clearInterval(timer); timer = null; }
       MZ.setSession(d.token || '');
       state.profile = {
-        name: d.name || '', username: d.username || '', gender: d.gender || '',
+        name: d.name || '', username: d.username || '', pen_name: d.pen_name || '', gender: d.gender || '',
         age: d.age || '', avatar: !!d.avatar, avatar_url: d.avatar_url || '',
         welcome: !!d.first_time,
       };
