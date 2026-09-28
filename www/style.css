@@ -537,24 +537,6 @@ body.light .btn.primary { color: #fff; }
 .ed-toolbar::-webkit-scrollbar { display: none; }
 .ed-toolbar .btn { flex: 0 0 auto; }
 
-/* 写作台底部常驻任务浮条：长操作不再用「转圈遮罩」，改成看得见的进度 */
-.dockbar {
-  position: fixed; left: 10px; right: 10px; z-index: 45;
-  bottom: calc(var(--safe-b) + 66px);
-  border-radius: 18px; overflow: hidden;
-  background: var(--toast-bg); border: 1px solid var(--line);
-  box-shadow: 0 22px 44px -26px rgba(0, 0, 0, .95);
-}
-.dockbar[hidden] { display: none; }
-.dockbar .db-top { display: flex; align-items: center; gap: 9px; padding: 10px 12px; }
-.dockbar .db-title { flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dockbar .db-pct { flex: 0 0 auto; font-size: 12.5px; font-weight: 680; color: var(--accent); font-variant-numeric: tabular-nums; }
-.dockbar .db-chev { flex: 0 0 auto; color: var(--muted); display: grid; place-items: center; transition: transform .3s var(--spring); }
-.dockbar.open .db-chev { transform: rotate(180deg); }
-.dockbar .db-track { height: 2.5px; background: var(--bar-track); }
-.dockbar .db-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent2), var(--accent)); }
-.dockbar .db-body { padding: 4px 12px 12px; border-top: 1px dashed var(--line-soft); max-height: 42vh; overflow-y: auto; }
-
 /* ============================== 关于 / 设置 ============================== */
 .dim-row { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
 .dim-row .dn { flex: 0 0 84px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -627,7 +609,6 @@ body.light .aurora::after { background: radial-gradient(120% 80% at 50% 0%, tran
   .kpi-grid, .kpi-grid.k4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .tabbar { max-width: 760px; left: 50%; transform: translateX(-50%); border-radius: 22px 22px 0 0; }
   .islanddock { max-width: 736px; margin: 2px auto 6px; }
-  .dockbar { max-width: 640px; left: 50%; transform: translateX(-50%); }
 }
 /* 胶囊选择条：作品切换这类「一长串标题」用它，横向滚动 + 省略号 */
 .pillbar { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; scrollbar-width: none; }
@@ -663,7 +644,9 @@ body.light .pillbar button.on { color: #fff; }
 /* ============================== 全局任务条 ============================== */
 .opsdock {
   position: fixed; left: 10px; right: 10px; z-index: 46;
-  bottom: calc(var(--safe-b) + 62px);
+  /* --dock-bottom 由写作台按「底部工具条 + 选中条」的实测高度写进来；
+     不在写作台时回落到默认值（贴在标签栏上方）。 */
+  bottom: var(--dock-bottom, calc(var(--safe-b) + 62px));
   border-radius: 18px; overflow: hidden;
   background: var(--toast-bg);
   border: 1px solid var(--line);
@@ -698,6 +681,7 @@ body.light .pillbar button.on { color: #fff; }
 .od-s { font-size: 11.5px; color: var(--muted); margin-top: 5px; line-height: 1.5; word-break: break-word; }
 .od-row .bar { margin-top: 6px; }
 .od-row .steps { margin-top: 7px; }
+.od-row .btn-row { margin-top: 9px; }
 .od-row.run .od-ic, .opsdock .live-dot { animation: odPulse 1.35s ease-in-out infinite; }
 
 @keyframes odSlide { from { opacity: 0; transform: translateY(16px) scale(.965); } to { opacity: 1; transform: none; } }
@@ -793,4 +777,101 @@ body.light .tb.primary, body.light .tb.blue { color: #fff; }
   .opsdock, .sel-bar { animation: none; }
   .od-track i, .od-row.run .od-ic, .opsdock .live-dot { animation: none; }
   .od-track i { transition: none; }
+}
+
+
+/* ============================== 作品页 / 表单件（book.js） ============================== */
+.fld { margin-top: 13px; }
+.fld > label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; letter-spacing: .2px; }
+.inp {
+  display: block; width: 100%; box-sizing: border-box;
+  padding: 12px 13px; border-radius: 14px; font-size: 15px; line-height: 1.55;
+  color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+  outline: none; -webkit-appearance: none; appearance: none; font-family: inherit;
+}
+textarea.inp { min-height: 76px; resize: vertical; line-height: 1.7; }
+.inp:focus { border-color: color-mix(in srgb, var(--accent) 46%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.inp::placeholder { color: var(--dim); }
+.fld-hint { margin: 8px 2px 0; font-size: 11.5px; color: var(--dim); line-height: 1.6; }
+.g2 { display: flex; gap: 11px; }
+.g2 > .fld { flex: 1 1 0; min-width: 0; }
+.sw-row {
+  display: flex; align-items: center; gap: 11px; margin-top: 13px; padding: 11px 13px;
+  border-radius: 14px; background: var(--panel); border: 1px solid var(--line-soft);
+}
+.sw-row:active { background: var(--press); }
+.sw-row .lab { flex: 1 1 auto; font-size: 14px; }
+.sw {
+  flex: 0 0 auto; position: relative; width: 46px; height: 28px; border-radius: 999px;
+  background: var(--bar-track); border: 1px solid var(--line);
+  transition: background-color .2s ease, border-color .2s ease;
+}
+.sw i {
+  position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 999px;
+  background: var(--text); opacity: .5;
+  transition: transform .22s var(--spring), opacity .2s ease, background-color .2s ease;
+}
+.sw.on { background: color-mix(in srgb, var(--accent) 84%, transparent); border-color: transparent; }
+.sw.on i { transform: translateX(18px); background: #04150f; opacity: 1; }
+
+/* 作品页头（封面 + 信息竖排） */
+.bk-head { display: flex; gap: 13px; align-items: flex-start; margin-bottom: 2px; }
+.bk-head .cover {
+  flex: 0 0 auto; width: 68px; height: 92px; border-radius: 13px; overflow: hidden;
+  display: grid; place-items: center; font-size: 27px; font-weight: 700; color: #04150f;
+  background: linear-gradient(150deg, var(--accent), color-mix(in srgb, var(--accent2) 60%, var(--accent)));
+  box-shadow: 0 12px 26px -16px rgba(0, 0, 0, .9); object-fit: cover;
+}
+.bk-head .bk-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.bk-head .bk-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.bk-head .bk-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.bk-head .bk-foot .bar { flex: 1 1 auto; }
+
+/* 章节行右侧的「⋯」 */
+.bk-more {
+  flex: 0 0 auto; width: 30px; height: 30px; margin: -4px -4px -4px 2px; border-radius: 10px;
+  display: grid; place-items: center; color: var(--muted);
+  background: var(--panel2); border: 1px solid var(--line-soft);
+}
+.bk-more:active { background: var(--press); }
+
+/* ============================== 书架：吸顶条 + 整理（多选删除） ============================== */
+.books-head {
+  position: sticky; top: 0; z-index: 6;
+  display: flex; align-items: center; gap: 10px;
+  margin: -4px -15px 11px; padding: 9px 15px;
+  background: var(--nav-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(170%); backdrop-filter: blur(20px) saturate(170%);
+  box-shadow: 0 1px 0 var(--line-soft);
+}
+.books-head .bh-stat {
+  flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.books-head .bh-stat b { font-weight: 660; color: var(--text); }
+.books-head .bh-tools { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
+.bh-btn {
+  height: 30px; padding: 0 11px; border-radius: 10px; font-size: 12.5px; font-weight: 620;
+  color: var(--text); background: var(--panel2); border: 1px solid var(--line); white-space: nowrap;
+}
+.bh-btn:active { background: var(--press); }
+.bh-btn.danger {
+  color: var(--red); border-color: color-mix(in srgb, var(--red) 34%, transparent);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+.book.picked { border-color: color-mix(in srgb, var(--accent) 46%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--glass)); }
+.bk-dot {
+  flex: 0 0 auto; align-self: center; width: 32px; height: 32px; border-radius: 11px;
+  display: grid; place-items: center; color: var(--muted);
+  background: var(--panel2); border: 1px solid var(--line-soft);
+}
+.bk-dot:active { background: var(--press); }
+.bk-pick {
+  flex: 0 0 auto; align-self: center; width: 26px; height: 26px; border-radius: 999px;
+  border: 2px solid var(--line); display: grid; place-items: center; color: #04150f;
+}
+.bk-pick.on { background: var(--accent); border-color: var(--accent); }
+
+@media (min-width: 700px) {
+  .books-head { margin: -6px -22px 12px; padding-left: 22px; padding-right: 22px; }
 }
