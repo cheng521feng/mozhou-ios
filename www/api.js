@@ -213,16 +213,13 @@ window.MZ = (function () {
     put: function (p, b, o) { return req(p, Object.assign({ method: 'PUT', body: b || {} }, o)); },
     del: function (p, o) { return req(p, Object.assign({ method: 'DELETE' }, o)); },
   };
-  /* 登录：走同一套「入口自动切换」。登录页在没会话时就得能进，
-     所以这里不能借 req()（req 会把 401 当成会话过期回登录页），单独实现一份。
+  /* 登录 / 注册 / 发验证码共用的「直接 POST 到服务器」：走同一套入口自动切换。
+     登录页在没会话时就得能进，所以不能借 req()（req 会把 401 当成会话过期弹回登录页）。
      返回 {resp, data}；网络层失败会自动换入口重试一次。 */
-  async function login(user, password) {
-    const payload = JSON.stringify({
-      user: String(user || '').replace(/^\s+|\s+$/g, ''),
-      password: String(password || ''),
-    });
+  async function postCloud(path, body) {
+    const payload = JSON.stringify(body || {});
     const send = function () {
-      return fetch(url('/api/mz/login'), {
+      return fetch(url(path), {
         method: 'POST', cache: 'no-store',
         headers: { 'Content-Type': 'application/json', 'X-Mz-App': '1' },
         body: payload,
@@ -241,6 +238,25 @@ window.MZ = (function () {
     let data = null;
     try { data = await resp.json(); } catch (e2) { data = null; }
     return { resp: resp, data: data };
+  }
+
+  function login(user, password) {
+    return postCloud('/api/mz/login', {
+      user: String(user || '').replace(/^\s+|\s+$/g, ''),
+      password: String(password || ''),
+    });
+  }
+
+  /* 注册：先发短信验证码，再带上验证码注册；成功后服务器直接给会话口令，不用再登一遍。 */
+  function sms(phone, purpose) {
+    return postCloud('/api/mz/sms', { phone: String(phone || '').replace(/^\s+|\s+$/g, ''), purpose: purpose || 'register' });
+  }
+  function register(phone, code, password) {
+    return postCloud('/api/mz/register', {
+      phone: String(phone || '').replace(/^\s+|\s+$/g, ''),
+      code: String(code || '').replace(/^\s+|\s+$/g, ''),
+      password: String(password || ''),
+    });
   }
 
   /* ============================== hyperscript ============================== */
@@ -848,6 +864,7 @@ window.MZ = (function () {
     debounce: debounce, sleep: sleep, reduceMotion: reduceMotion,
     emptyBox: emptyBox, loadingBox: loadingBox, errBox: errBox,
     setToken: setToken, getToken: getToken, login: login,
+    postCloud: postCloud, sms: sms, register: register,
     url: url, img: img, authHeaders: authHeaders, setSession: setSession, logout: logout,
     clouds: CLOUDS.slice(), pickCloud: pickCloud, useCloud: useCloud,
     get CLOUD() { return CLOUD || CLOUDS[0] || ''; },
