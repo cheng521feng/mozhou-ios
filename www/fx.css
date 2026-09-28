@@ -331,14 +331,6 @@ body.light .ripple { background: radial-gradient(circle, rgba(20,40,70,.2), rgba
 }
 .qslot.hot { color: var(--text); border-color: color-mix(in srgb, var(--accent) 42%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
-/* 写作台底部常驻任务浮条 */
-.dockbar {
-  animation: mzSlideDown .42s var(--spring) both;
-  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
-}
-.dockbar .db-fill { transition: width .6s var(--spring); }
-.dockbar.open .db-body { animation: mzRise .34s var(--spring) both; }
-
 /* 保存状态点：有未保存修改时呼吸提醒 */
 .save-dot.dirty { animation: mzBreath 1.1s ease-in-out infinite; }
 
@@ -363,6 +355,6 @@ body.light .ripple { background: radial-gradient(circle, rgba(20,40,70,.2), rgba
     transition-duration: .001ms !important;
     scroll-behavior: auto !important;
   }
-  .rise, .ev, .toast, .screen-fade, .screen-push, .screen-back, .islanddock, .dockbar { animation: none !important; }
+  .rise, .ev, .toast, .screen-fade, .screen-push, .screen-back, .islanddock { animation: none !important; }
   .aurora { animation: none !important; }
 }
