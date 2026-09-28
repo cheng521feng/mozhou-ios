@@ -9,6 +9,19 @@
 <meta name="apple-mobile-web-app-title" content="墨舟" />
 <meta name="theme-color" content="#0a0e15" />
 <meta name="color-scheme" content="dark light" />
+<!-- 首屏外观：在样式表生效前就把 html.light 打上，冷启动不会先闪一下白底 -->
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem('mz_theme');
+    var light = (t === 'light') || ((t !== 'dark') && window.matchMedia
+      && window.matchMedia('(prefers-color-scheme: light)').matches);
+    if (light) document.documentElement.classList.add('light');
+    var m = document.querySelector('meta[name=theme-color]');
+    if (m) m.setAttribute('content', light ? '#eef2f8' : '#0a0e15');
+  } catch (e) { /* 忽略 */ }
+})();
+</script>
 <meta name="format-detection" content="telephone=no,email=no,address=no" />
 <title>墨舟创作工坊</title>
 <link rel="manifest" href="manifest.webmanifest" />
@@ -25,8 +38,8 @@
 <link rel="apple-touch-startup-image" href="splash/1125x2436.png" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3)" />
 <link rel="apple-touch-startup-image" href="splash/828x1792.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2)" />
 <link rel="apple-touch-startup-image" href="splash/750x1334.png" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2)" />
-<link rel="stylesheet" href="style.css?v=20260928f" />
-<link rel="stylesheet" href="fx.css?v=20260928f" />
+<link rel="stylesheet" href="style.css?v=20260928g" />
+<link rel="stylesheet" href="fx.css?v=20260928g" />
 </head>
 <body>
 <div class="aurora"></div>
@@ -109,10 +122,10 @@
   <i id="splashMsg">正在连接…</i>
 </div>
 
-<script src="api.js?v=20260928f"></script>
-<script src="app.js?v=20260928f"></script>
-<script src="pages.js?v=20260928f"></script>
-<script src="editor.js?v=20260928f"></script>
-<script src="book.js?v=20260928f"></script>
+<script src="api.js?v=20260928g"></script>
+<script src="app.js?v=20260928g"></script>
+<script src="pages.js?v=20260928g"></script>
+<script src="editor.js?v=20260928g"></script>
+<script src="book.js?v=20260928g"></script>
 </body>
 </html>
