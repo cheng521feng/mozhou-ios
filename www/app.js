@@ -513,6 +513,9 @@ window.MZApp = (function () {
     return state.profile;
   }
   function findNovel(nid) { return state.novels.filter(function (n) { return n.id === nid; })[0] || null; }
+  /* 账号资料里的名字：新建作品时当默认作者名（拿不到就留空，让用户自己填）。
+     以前新建作品不带作者，后端会写死「峰头哥」—— 封面还会把它画进图里。 */
+  function myName() { return (state.profile && (state.profile.name || state.profile.username)) || ''; }
   function planNeed(n) {
     const p = n.plan || {};
     if (p.need !== undefined && p.need !== null) return Math.max(0, Number(p.need) || 0);
@@ -847,10 +850,11 @@ window.MZApp = (function () {
       const r = await fetch(MZ.url('/api/novel/' + n.id + '/export?fmt=txt'),
         { headers: Object.assign({}, MZ.authHeaders(), MZ.getToken() ? { 'X-Mozhou-Token': MZ.getToken() } : {}) });
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      const blob = await r.blob();
-      const a = h('a', { href: URL.createObjectURL(blob), download: (n.title || 'novel') + '.txt' });
-      document.body.appendChild(a); a.click(); a.remove();
-      toast('已下载', 'ok');
+      const text = await r.text();
+      const res = await MZ.saveText((n.title || 'novel') + '.txt', text);
+      toast(res && res.native
+        ? '已存到「文件」App → 我的 iPhone → 墨舟'
+        : '已开始下载', 'ok');
     } catch (e) { toast('导出失败：' + e.message, 'bad'); }
   }
   function newNovelMenu() {
@@ -865,7 +869,8 @@ window.MZApp = (function () {
   async function newNovel() {
     const B = window.MZBook;
     if (!B || !B.picker || !B.field) { toast('界面组件没加载出来，退出重进一次试试', 'bad'); return; }
-    const st = { title: '', chan: '', cat: '', idea: '', plan: null };
+    if (!state.profile) { try { await loadProfile(); } catch (e) { /* 拿不到就让用户自己填 */ } }
+    const st = { title: '', author: '', chan: '', cat: '', idea: '', plan: null };
 
     /* AI 给的方案先给作者过一眼，点「创建这本书」才写进去 */
     function planBox(plan) {
@@ -897,12 +902,17 @@ window.MZApp = (function () {
         build: function (b, close) {
           b.appendChild(h('div.fld-hint', { text: '先选频道和类型，再填个书名。想让 AI 先出简介 / 大纲 / 人物，点「AI 写大纲」，满意了再点「创建这本书」。' }));
           const fTitle = B.field('书名', st.title, { ph: '书名' });
+          const fAuthor = B.field('作者', st.author || myName(), {
+            ph: '笔名 / 你的名字',
+            hint: '作者名会印在 AI 封面和导出的 txt 上；建完也能在「编辑资料」里改。',
+          });
           const picker = B.picker(st.chan, st.cat);
           const fIdea = B.field('一句话方向', st.idea, {
             ph: '如：退伍兵回村搞养殖（可留空）',
             hint: '留空也行，AI 会在你选的频道和类型里自己挑一个题。',
           });
           b.appendChild(fTitle.node);
+          b.appendChild(fAuthor.node);
           b.appendChild(picker.node);
           b.appendChild(fIdea.node);
           if (st.plan) {
@@ -921,6 +931,7 @@ window.MZApp = (function () {
           const row = h('div.btn-row');
           row.appendChild(mkBtn(st.plan ? '重新写一份' : 'AI 写大纲', 'blue', async function () {
             st.title = fTitle.value().trim();
+            st.author = fAuthor.value().trim();
             st.chan = picker.channel(); st.cat = picker.category();
             st.idea = fIdea.value().trim();
             close();
@@ -947,11 +958,12 @@ window.MZApp = (function () {
           }));
           row.appendChild(mkBtn('创建这本书', 'primary', async function () {
             st.title = fTitle.value().trim();
+            st.author = fAuthor.value().trim();
             st.chan = picker.channel(); st.cat = picker.category();
             if (!st.title) { toast('先填个书名', 'bad'); return; }
             close();
             const bs = busySheet('正在创建…');
-            const body = { title: st.title, channel: st.chan, category: st.cat };
+            const body = { title: st.title, channel: st.chan, category: st.cat, author: st.author };
             if (st.plan) {
               const chs = st.plan.chapters || [];
               body.intro = st.plan.intro;
@@ -993,7 +1005,7 @@ window.MZApp = (function () {
     const B = window.MZBook;
     if (!B || !B.field) { toast('导入组件没加载出来，退出重进一次试试', 'bad'); return; }
     const title = B.field('书名', '', { ph: '不填就自动取一个名字' });
-    const author = B.field('作者', '');
+    const author = B.field('作者', myName(), { ph: '笔名 / 你的名字', hint: '作者名会印在 AI 封面和导出的 txt 上。' });
     const text = B.field('正文', '', {
       area: true, rows: 10, ph: '把整本书粘到这里',
       hint: '按「第 N 章」自动切章；没有章节标记就当作第 1 章。导入后默认不参与「今日自动更新」。',
