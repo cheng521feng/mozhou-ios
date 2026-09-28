@@ -855,38 +855,137 @@ window.MZApp = (function () {
   }
   function newNovelMenu() {
     actions([
-      { label: '取个书名，让 AI 写大纲', icon: 'spark', sub: '先建书，再按书名生成大纲 / 人物 / 简介', onPick: function () { newNovel(); } },
+      { label: '选频道类型，AI 写大纲', icon: 'spark', sub: '男频 / 女频 · 选好类型，AI 出简介·大纲·人物，满意再建书', onPick: function () { newNovel(); } },
       { label: '粘贴整本书导入', icon: 'file', sub: '按「第 N 章」自动切章，适合搬已经写完的稿子', onPick: function () { importNovel(); } },
     ], { title: '新建作品' });
   }
 
+  /* 新建作品：先选男频/女频 → 选类型 → 可选地让 AI 写大纲（简介/大纲/人物），满意再建书。
+     手机端的抽屉是单例：生成时要先把抽屉让出去，好了再把表单重开（所以输入都存进 st）。 */
   async function newNovel() {
-    const v = await modal({
-      title: '新建作品',
-      text: '先填书名。建好之后可以让 AI 根据书名写大纲，别的设定随时能在作品页里改。',
-      input: 'text', placeholder: '书名', okText: '创建',
-    });
-    if (v === null || !String(v).trim()) return;
-    const title = String(v).trim();
-    let nid = 0;
-    try {
-      const res = await api.post('/api/novels', { title: title });
-      nid = (res && res.novel && res.novel.id) || (res && res.id) || 0;
-    } catch (e) { toast(e.message, 'bad'); return; }
-    toast('已创建《' + title + '》', 'ok');
-    haptic('success');
-    await loadHero();
-    await refreshLive();
-    go('books'); render();
-    if (!nid) return;
-    const novel = findNovel(nid) || { id: nid, title: title, category: '', intro: '' };
-    if (window.MZBook && window.MZBook.aiOutline) {
-      const want = await confirm(
-        '《' + title + '》建好了。\n现在让 AI 根据书名写大纲？（简介 + 三幕大纲 + 人物 + 前 20 章章纲；生成后先给你看，点「采纳」才写进去）',
-        { okText: '写大纲', cancelText: '先不用' });
-      if (want) window.MZBook.aiOutline(novel, { silent: true });
+    const B = window.MZBook;
+    if (!B || !B.picker || !B.field) { toast('界面组件没加载出来，退出重进一次试试', 'bad'); return; }
+    const st = { title: '', chan: '', cat: '', idea: '', plan: null };
+
+    /* AI 给的方案先给作者过一眼，点「创建这本书」才写进去 */
+    function planBox(plan) {
+      const box = h('div');
+      box.appendChild(h('div.section-title', { text: 'AI 方案（点「创建这本书」才写进去）' }));
+      box.appendChild(h('div.card.tight.small.pre-wrap', { text: plan.intro || '（这次没给简介）' }));
+      box.appendChild(h('div.section-title', { text: '三幕大纲' }));
+      box.appendChild(h('div.card.tight.small.pre-wrap', { text: plan.main || '（这次没给大纲）' }));
+      if (plan.characters) {
+        box.appendChild(h('div.section-title', { text: '人物' }));
+        box.appendChild(h('div.card.tight.small.pre-wrap', { text: plan.characters }));
+      }
+      const chs = plan.chapters || [];
+      if (chs.length) {
+        box.appendChild(h('div.section-title', null, h('span', { text: '前 ' + chs.length + ' 章章纲' })));
+        const l = h('div.list');
+        chs.slice(0, 8).forEach(function (c, i) {
+          l.appendChild(li({ title: String(i + 1) + '. ' + (c.title || ''), sub: c.brief || '' }));
+        });
+        if (chs.length > 8) l.appendChild(li({ title: '…', sub: '还有 ' + (chs.length - 8) + ' 条章纲，建好后在作品页里看' }));
+        box.appendChild(l);
+      }
+      return box;
     }
-    openBook(nid);
+
+    function openSheet() {
+      sheet({
+        title: '新建作品',
+        build: function (b, close) {
+          b.appendChild(h('div.fld-hint', { text: '先选频道和类型，再填个书名。想让 AI 先出简介 / 大纲 / 人物，点「AI 写大纲」，满意了再点「创建这本书」。' }));
+          const fTitle = B.field('书名', st.title, { ph: '书名' });
+          const picker = B.picker(st.chan, st.cat);
+          const fIdea = B.field('一句话方向', st.idea, {
+            ph: '如：退伍兵回村搞养殖（可留空）',
+            hint: '留空也行，AI 会在你选的频道和类型里自己挑一个题。',
+          });
+          b.appendChild(fTitle.node);
+          b.appendChild(picker.node);
+          b.appendChild(fIdea.node);
+          if (st.plan) {
+            const chs = st.plan.chapters || [];
+            b.appendChild(h('div.fld-hint', { text: 'AI 方案已就绪：' + (st.plan.title ? '建议书名《' + st.plan.title + '》，' : '')
+              + '简介 / 三幕大纲 / 人物 / 前 ' + chs.length + ' 章章纲。点「创建这本书」写进去。' }));
+          }
+          const pv = st.plan ? planBox(st.plan) : null;
+          if (pv) { pv.hidden = true; b.appendChild(pv); }
+
+          function mkBtn(label, tone, onTap) {
+            const el = h('button.btn' + (tone ? '.' + tone : ''), { type: 'button', text: label });
+            el.addEventListener('click', function () { haptic('light'); onTap(el); });
+            return el;
+          }
+          const row = h('div.btn-row');
+          row.appendChild(mkBtn(st.plan ? '重新写一份' : 'AI 写大纲', 'blue', async function () {
+            st.title = fTitle.value().trim();
+            st.chan = picker.channel(); st.cat = picker.category();
+            st.idea = fIdea.value().trim();
+            close();
+            const bs = busySheet('AI 正在构思大纲…');
+            try {
+              const topic = [st.title, st.idea, st.cat].filter(Boolean).join(' ');
+              const r = await api.post('/api/idea', {
+                topic: topic, channel: st.chan, category: st.cat || '都市', count: 20, create: 0,
+              }, { timeout: 300000 });
+              bs.close();
+              st.plan = {
+                title: r.title || '', intro: r.intro || '', characters: r.characters || '',
+                main: r.outline || '', chapters: r.chapters || [],
+              };
+              if (!st.title && st.plan.title) st.title = st.plan.title;
+              haptic('success');
+              openSheet();
+              toast('AI 方案已就绪，看看满意不', 'ok');
+            } catch (e) { bs.close(); toast(e.message, 'bad'); openSheet(); }
+          }));
+          if (pv) row.appendChild(mkBtn('看看 AI 方案', '', function (el) {
+            pv.hidden = !pv.hidden;
+            el.textContent = pv.hidden ? '看看 AI 方案' : '收起 AI 方案';
+          }));
+          row.appendChild(mkBtn('创建这本书', 'primary', async function () {
+            st.title = fTitle.value().trim();
+            st.chan = picker.channel(); st.cat = picker.category();
+            if (!st.title) { toast('先填个书名', 'bad'); return; }
+            close();
+            const bs = busySheet('正在创建…');
+            const body = { title: st.title, channel: st.chan, category: st.cat };
+            if (st.plan) {
+              const chs = st.plan.chapters || [];
+              body.intro = st.plan.intro;
+              body.characters = st.plan.characters;
+              body.outline = st.plan.main + (chs.length
+                ? '\n\n【章纲】\n' + chs.map(function (c) { return (c.title || '') + '：' + (c.brief || ''); }).join('\n')
+                : '');
+            }
+            let nid = 0;
+            try {
+              const res = await api.post('/api/novels', body);
+              nid = (res && res.novel && res.novel.id) || (res && res.id) || 0;
+              bs.close();
+            } catch (e) { bs.close(); toast(e.message, 'bad'); return; }
+            toast('已创建《' + st.title + '》', 'ok');
+            haptic('success');
+            await loadHero();
+            await refreshLive();
+            go('books'); render();
+            if (!nid) return;
+            if (!st.plan && window.MZBook && window.MZBook.aiOutline) {
+              const novel = findNovel(nid) || { id: nid, title: st.title, category: st.cat, channel: st.chan, intro: '' };
+              const want = await confirm(
+                '《' + st.title + '》建好了。\n现在让 AI 根据书名写大纲？（简介 + 三幕大纲 + 人物 + 前 20 章章纲；生成后先给你看，点「采纳」才写进去）',
+                { okText: '写大纲', cancelText: '先不用' });
+              if (want) window.MZBook.aiOutline(novel, { silent: true });
+            }
+            openBook(nid);
+          }));
+          b.appendChild(row);
+        },
+      });
+    }
+    openSheet();
   }
 
   /* 粘贴导入：手机选不到本地文件，所以改成把整本书粘进来，后端按「第N章」切章 */
