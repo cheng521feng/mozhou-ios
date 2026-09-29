@@ -13,7 +13,7 @@
 window.MZApp = (function () {
   const { h, frag, add, clear, $, $$, api, toast, sheet, actions, modal, confirm, haptic,
           fmtNum, fmtWords, fmtDur, fmtDate, timeAgo, debounce, sleep, emptyBox, loadingBox, errBox,
-          attachPull, icon, brand, ring, bar, chip, countNode, countUp, skeleton, reduceMotion } = MZ;
+          attachPull, icon, brand, ring, bar, chip, countNode, countUp, skeleton, reduceMotion, hold } = MZ;
 
   const TABS = ['overview', 'books', 'write', 'jobs', 'me'];
   const TAB_LABEL = { overview: '总览', books: '书架', write: '写作', jobs: '任务', me: '我的' };
@@ -831,6 +831,23 @@ window.MZApp = (function () {
     return b;
   }
 
+  /* 封面长按 → 封面菜单（保存到相册 / 看大图 / 重画）。
+     封面上要把事件止住，否则松手时卡片自己的长按菜单也会弹出来（两个菜单叠在一起）。 */
+  function bindCoverMenu(el, n) {
+    const hh = hold(el, function () {
+      if (window.MZBook && window.MZBook.coverSheet) window.MZBook.coverSheet(n);
+    });
+    ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(function (ev) {
+      el.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true });
+    });
+    el.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (hh.swallow()) return;
+      haptic('light');
+      if (window.MZBook && window.MZBook.coverSheet) window.MZBook.coverSheet(n);
+    });
+  }
+
   function bookCard(n) {
     const live = state.live || {};
     const running = (live.books || []).filter(function (b) { return b.id === n.id; })[0] || null;
@@ -838,12 +855,23 @@ window.MZApp = (function () {
     const daily = (n.plan && n.plan.daily) || n.daily_count || 0;
     const picked = !!booksSel.ids[n.id];
     const el = h('div.book' + (running ? '.running' : '') + (picked ? '.picked' : ''));
+    let cv;
     if (n.cover_url) {
-      el.appendChild(h('img.cover', { src: MZ.img(n.cover_url), alt: '', decoding: 'async',
-        onerror: function (e) { const im = e && e.currentTarget; if (im && im.parentNode) im.parentNode.replaceChild(h('div.cover', { text: (n.title || '书').slice(0, 1) }), im); } }));
+      cv = h('img.cover', { src: MZ.img(n.cover_url), alt: '', decoding: 'async',
+        onerror: function (e) {
+          const im = e && e.currentTarget;
+          if (im && im.parentNode) {
+            /* 图片加载失败会换成占位块：换了也得把长按菜单一并挂上，否则封面就点不动了 */
+            const d2 = h('div.cover', { text: (n.title || '书').slice(0, 1) });
+            bindCoverMenu(d2, n);
+            im.parentNode.replaceChild(d2, im);
+          }
+        } });
     } else {
-      el.appendChild(h('div.cover', { text: (n.title || '书').slice(0, 1) }));
+      cv = h('div.cover', { text: (n.title || '书').slice(0, 1) });
     }
+    bindCoverMenu(cv, n);
+    el.appendChild(cv);
     const main = h('div.bk-main');
     main.appendChild(h('div.bk-top', null,
       h('div', null,
@@ -904,6 +932,8 @@ window.MZApp = (function () {
       { label: n.pinned ? '取消置顶' : '置顶到书架最前', icon: 'star', onPick: function () { setPinned([n.id], !n.pinned); } },
       { label: 'AI 根据书名写大纲', icon: 'spark', sub: hasOutline(n) ? '会覆盖现有大纲，先给你看再采纳' : '这本书还没有大纲',
         onPick: function () { if (window.MZBook && window.MZBook.aiOutline) window.MZBook.aiOutline(n); } },
+      { label: '保存封面', icon: 'download', onPick: function () {
+        if (window.MZBook && window.MZBook.saveCover) window.MZBook.saveCover(n); } },
       { label: '删除作品', icon: 'trash', danger: true, sub: '进回收站，可恢复', onPick: function () { removeNovels([n.id]); } },
     ], { title: n.title || '作品' });
   }
