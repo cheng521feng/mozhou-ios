@@ -983,3 +983,15 @@ body.wc-open #mzAcctBtn { opacity: 0 !important; pointer-events: none !important
 .reg-cap { display: flex; gap: 9px; align-items: center; }
 .reg-cap .inp { flex: 1 1 auto; min-width: 0; }
 .reg-cap .btn { flex: 0 0 auto; }
+
+
+/* ============================== 书架：搜索 / 排序 / 筛选 + 长方案滚动 ============================== */
+.bk-tools { display: flex; flex-direction: column; gap: 9px; margin: 0 0 12px; }
+.bk-search { padding: 10px 13px; font-size: 14px; }
+.bk-search::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+.bk-filter { padding: 1px 0 2px; }
+.bk-filter .chip { padding: 5.5px 11px; font-size: 12.5px; }
+.books-head .bh-tools { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+/* AI 方案里的几十条章纲：给个高度上限，里面自己滚，别把「创建这本书」顶到看不见的地方 */
+.plan-scroll { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; border-radius: var(--r-card); }
+.plan-scroll .list { border-radius: var(--r-card); }
