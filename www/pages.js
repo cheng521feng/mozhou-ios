@@ -121,6 +121,16 @@
           { label: '退出登录', tone: 'danger', size: 'sm', onTap: function () { logout(); } },
           { label: '填访问口令', size: 'sm', onTap: function () { A.openTokenDialog().then(function (saved) { if (saved) A.refreshAll(false); }); } },
         ]));
+        const pwRow = h('div.li.tap', null,
+          h('div.li-ico', null, icon('lock', { size: 20 })),
+          h('div.li-main', null,
+            h('div.li-title', { text: '修改密码' }),
+            h('div.li-sub', { text: '换密码之后，别的手机 / 电脑要重新登录' })),
+          h('span.li-arrow', null, icon('fwd', { size: 16 })));
+        pwRow.addEventListener('click', function () { haptic('light'); A.showChangePw(); });
+        const pwWrap = h('div.list.pwrows');
+        pwWrap.appendChild(pwRow);
+        acct.appendChild(pwWrap);
         out.appendChild(acct);
 
         /* 正在跑 / 排队 */
@@ -133,7 +143,7 @@
         out.appendChild(h('div.section-title', null,
           h('span', { text: '使用的模型' }),
           h('span.sp', { text: '勾几个就调几个' })));
-        const ml = h('div.list');
+        const ml = h('div.list.models');
         MODELS.forEach(function (k) { ml.appendChild(modelPickRow(k)); });
         out.appendChild(ml);
         out.appendChild(roleCard());
