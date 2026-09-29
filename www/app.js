@@ -616,14 +616,87 @@ window.MZApp = (function () {
   };
 
   /* ============================== 书架 ============================== */
-  /* 「整理（多选删除）」的状态放模块级：删除 / 切模式后都要 render()，重建 DOM 不能把选择丢掉 */
+  /* 「整理（多选）」和「搜索 / 排序 / 筛选」的状态都放模块级：
+     删除、切模式、切页面回来之后都要 render()，重建 DOM 不能把用户看到哪儿丢了。 */
   const booksSel = { mode: false, ids: {} };
+  const booksView = { q: '', sort: 'updated', filter: 'all' };
+
+  const BOOK_SORTS = [
+    { key: 'updated', label: '最近更新' },
+    { key: 'chars', label: '字数' },
+    { key: 'chapters', label: '章节' },
+    { key: 'score', label: '评分' },
+    { key: 'title', label: '书名' },
+  ];
+  const BOOK_FILTERS = [
+    { key: 'all', label: '全部' },
+    { key: 'male', label: '男频' },
+    { key: 'female', label: '女频' },
+    { key: 'draft', label: '没开写' },
+    { key: 'nooutline', label: '缺大纲' },
+    { key: 'pinned', label: '置顶' },
+  ];
+  const BOOK_EMPTY = {
+    draft: ['这些书都还没开写', '筛出来的书都是 0 章。打开一本，点「补更（续写）」就能写起来。'],
+    nooutline: ['这些书都有大纲', '按「缺大纲」筛出来的书都已经有主线大纲了。'],
+    pinned: ['还没有置顶的书', '长按一本书 → 置顶，或者在「编辑资料」里打开「书架置顶」。'],
+  };
+
   function booksSelCount() {
     return Object.keys(booksSel.ids).filter(function (k) { return booksSel.ids[k]; }).length;
+  }
+  function pickedIds() {
+    return Object.keys(booksSel.ids).filter(function (k) { return booksSel.ids[k]; }).map(Number);
   }
   function novelTitleOf(id) {
     const n = state.novels.filter(function (x) { return x.id === Number(id); })[0];
     return n ? (n.title || '未命名') : ('#' + id);
+  }
+  function hasOutline(n) {
+    if (!n) return false;
+    if (typeof n.has_outline === 'boolean') return n.has_outline;
+    return !!(n.outline && String(n.outline).trim());
+  }
+  /* 章纲标题：模型可能已经带了「第 3 章」，也可能只给标题，统一成「第 N 章 标题」 */
+  function chapTitle(c, i) {
+    const t = String((c && c.title) || '').trim();
+    if (/^第\s*[0-9一二三四五六七八九十百千零两]+\s*章/.test(t)) return t;
+    return '第' + ((c && c.idx) || i + 1) + '章 ' + (t || '（没写标题）');
+  }
+  function sortBooks(list, key) {
+    const arr = (list || []).slice();
+    arr.sort(function (a, b) {
+      const pin = (!!b.pinned ? 1 : 0) - (!!a.pinned ? 1 : 0);
+      if (pin) return pin;
+      if (key === 'chars') return (b.total_chars || 0) - (a.total_chars || 0);
+      if (key === 'chapters') return (b.chapter_count || 0) - (a.chapter_count || 0);
+      if (key === 'score') return (b.avg_score || 0) - (a.avg_score || 0);
+      if (key === 'title') return String(a.title || '').localeCompare(String(b.title || ''), 'zh');
+      return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+    });
+    return arr;
+  }
+  function filterBooks(list, key) {
+    if (!key || key === 'all') return list;
+    return (list || []).filter(function (n) {
+      if (key === 'male') return String(n.channel || '').indexOf('男') >= 0;
+      if (key === 'female') return String(n.channel || '').indexOf('女') >= 0;
+      if (key === 'draft') return !(n.chapter_count || 0);
+      if (key === 'nooutline') return !hasOutline(n);
+      if (key === 'pinned') return !!n.pinned;
+      return true;
+    });
+  }
+  function searchBooks(list, q) {
+    q = String(q || '').trim().toLowerCase();
+    if (!q) return list;
+    return (list || []).filter(function (n) {
+      return [n.title, n.author, n.category, n.channel, n.last_title]
+        .some(function (v) { return String(v || '').toLowerCase().indexOf(q) >= 0; });
+    });
+  }
+  function visibleBooks() {
+    return filterBooks(searchBooks(sortBooks(state.novels, booksView.sort), booksView.q), booksView.filter);
   }
 
   screens.books = function () {
@@ -640,51 +713,115 @@ window.MZApp = (function () {
           return out;
         }
         const st = d.stats || {};
-        const list = state.novels.slice().sort(function (a, b) {
-          if (!!b.pinned - !!a.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
-          return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
-        });
-        out.appendChild(booksHead(list.length, st));
-        list.forEach(function (n) { out.appendChild(bookCard(n)); });
-        out.appendChild(h('div.footnote', {
-          text: booksSel.mode
-            ? '选好之后点上面的「删除」，会先放进「我的 → 回收站」，随时能恢复。'
-            : '长按一本书，或点它右边的「⋯」，可以直接编辑资料、写大纲、删书，不用先进作品页。',
-        }));
+        const total = state.novels.length;
+        const stat = h('span.bh-stat');
+        const host = h('div');
+        const tip = h('div.footnote');
+
+        function paintStat(shown) {
+          clear(stat);
+          if (booksSel.mode) {
+            stat.appendChild(h('b', { text: '已选 ' + booksSelCount() + ' / ' + shown + ' 本' }));
+            return;
+          }
+          stat.appendChild(h('b', { text: '共 ' + (st.novels || total) + ' 本' }));
+          if (shown !== total) stat.appendChild(h('span', { text: ' · 筛出 ' + shown + ' 本' }));
+          stat.appendChild(h('span', { text: ' · ' + (st.chapters || 0) + ' 章 · ' + fmtNum(st.chars || 0) + ' 字' }));
+        }
+        function paint() {
+          const list = visibleBooks();
+          clear(host);
+          list.forEach(function (n) { host.appendChild(bookCard(n)); });
+          if (!list.length) {
+            const e = BOOK_EMPTY[booksView.filter];
+            host.appendChild(emptyBox('search', e ? e[0] : '没有符合条件的书',
+              e ? e[1] : '换个关键词，或者把上面的筛选切回「全部」。'));
+          }
+          paintStat(list.length);
+        }
+
+        /* 吸顶条：往上滚的时候「共几本 / 整理 / 删除」一直挂在导航栏下面 */
+        const head = h('div.books-head' + (booksSel.mode ? '.sel' : ''), { 'data-static': true });
+        head.appendChild(stat);
+        const tools = h('div.bh-tools');
+        if (booksSel.mode) {
+          const shown = visibleBooks().length;
+          const allPicked = shown > 0 && booksSelCount() >= shown;
+          tools.appendChild(miniBtn(allPicked ? '取消全选' : '全选', '', function () {
+            if (allPicked) booksSel.ids = {};
+            else visibleBooks().forEach(function (n) { booksSel.ids[n.id] = true; });
+            render();
+          }));
+          tools.appendChild(miniBtn('置顶', '', function () {
+            const ids = pickedIds();
+            if (!ids.length) { toast('先点书封选中要操作的书', 'bad'); return; }
+            setPinned(ids, true);
+          }));
+          tools.appendChild(miniBtn('取消置顶', '', function () {
+            const ids = pickedIds();
+            if (!ids.length) { toast('先点书封选中要操作的书', 'bad'); return; }
+            setPinned(ids, false);
+          }));
+          tools.appendChild(miniBtn(booksSelCount() ? '删除 ' + booksSelCount() : '删除', 'danger', function () {
+            if (!booksSelCount()) { toast('先点书封选中要删的书', 'bad'); return; }
+            removeSelected();
+          }));
+          tools.appendChild(miniBtn('完成', '', function () {
+            booksSel.mode = false; booksSel.ids = {}; render();
+          }));
+        } else {
+          tools.appendChild(miniBtn('整理', '', function () {
+            booksSel.mode = true; booksSel.ids = {}; render();
+          }));
+        }
+        head.appendChild(tools);
+
+        out.appendChild(head);
+        out.appendChild(booksTools(paint));
+        out.appendChild(host);
+        tip.textContent = booksSel.mode
+          ? '选好之后点上面的「置顶 / 删除」；删除会先放进「我的 → 回收站」，随时能恢复。'
+          : '长按一本书，或点它右边的「⋯」，可以直接编辑资料、写大纲、置顶、删书，不用先进作品页。';
+        out.appendChild(tip);
+        paint();
         return out;
       },
     };
   };
 
-  /* 吸顶条：往上滚的时候「共几本 / 整理 / 删除」一直挂在导航栏下面 */
-  function booksHead(total, st) {
-    const picked = booksSelCount();
-    const box = h('div.books-head' + (booksSel.mode ? '.sel' : ''), { 'data-static': true });
-    box.appendChild(h('div.bh-stat', null,
-      booksSel.mode
-        ? h('b', { text: '已选 ' + picked + ' / ' + total + ' 本' })
-        : [h('b', { text: '共 ' + (st.novels || total) + ' 本' }),
-           h('span', { text: ' · ' + (st.chapters || 0) + ' 章 · ' + fmtNum(st.chars || 0) + ' 字' })]));
-    const tools = h('div.bh-tools');
-    if (booksSel.mode) {
-      tools.appendChild(miniBtn(picked && picked === total ? '取消全选' : '全选', '', function () {
-        if (picked && picked === total) booksSel.ids = {};
-        else state.novels.forEach(function (n) { booksSel.ids[n.id] = true; });
-        render();
-      }));
-      tools.appendChild(miniBtn(picked ? '删除 ' + picked : '删除', 'danger', function () {
-        if (!picked) { toast('先点书封选中要删的书', 'bad'); return; }
-        removeSelected();
-      }));
-      tools.appendChild(miniBtn('完成', '', function () {
-        booksSel.mode = false; booksSel.ids = {}; render();
-      }));
-    } else {
-      tools.appendChild(miniBtn('整理', '', function () {
-        booksSel.mode = true; booksSel.ids = {}; render();
-      }));
+  /* 搜索 / 排序 / 筛选：只重画书卡，不整体 render()，否则搜索框会失焦、键盘会掉 */
+  function booksTools(repaint) {
+    const box = h('div.bk-tools', { 'data-static': true });
+    const inp = h('input.inp.bk-search', {
+      type: 'search', placeholder: '搜书名 / 作者 / 类型',
+      autocapitalize: 'off', autocorrect: 'off', autocomplete: 'off', spellcheck: 'false',
+    });
+    inp.value = booksView.q;
+    inp.addEventListener('input', function () { booksView.q = inp.value; repaint(); });
+    const sortBox = seg(BOOK_SORTS, booksView.sort, function (k) {
+      booksView.sort = k; repaint(); marks();
+    });
+    sortBox.classList.add('bk-sort');
+    const chipBox = h('div.chips.bk-filter');
+    BOOK_FILTERS.forEach(function (f) {
+      const c = h('button.chip.pick' + (booksView.filter === f.key ? '.on' : ''), { type: 'button', text: f.label });
+      c.addEventListener('click', function () {
+        haptic('light');
+        booksView.filter = f.key; repaint(); marks();
+      });
+      chipBox.appendChild(c);
+    });
+    function marks() {
+      Array.prototype.forEach.call(sortBox.children, function (x, i) {
+        x.classList.toggle('on', BOOK_SORTS[i].key === booksView.sort);
+      });
+      Array.prototype.forEach.call(chipBox.children, function (x, i) {
+        x.classList.toggle('on', BOOK_FILTERS[i].key === booksView.filter);
+      });
     }
-    box.appendChild(tools);
+    box.appendChild(inp);
+    box.appendChild(sortBox);
+    box.appendChild(chipBox);
     return box;
   }
 
@@ -717,7 +854,9 @@ window.MZApp = (function () {
       chip((n.chapter_count || 0) + ' 章', '', 'books'),
       chip(fmtNum(n.total_chars || 0) + ' 字', '', 'file'),
       (n.avg_score !== undefined && n.avg_score !== null) ? chip('均分 ' + Math.round(n.avg_score), (n.avg_score >= 75 ? 'ok' : ''), 'target') : null,
-      n.weak_count ? chip(n.weak_count + ' 弱章', 'amber', 'bolt') : null));
+      n.weak_count ? chip(n.weak_count + ' 弱章', 'amber', 'bolt') : null,
+      hasOutline(n) ? null : chip('缺大纲', 'warn'),
+      n.pinned ? chip('置顶', 'blue') : null));
     main.appendChild(h('div.bk-foot', null,
       barOf(daily ? (made / daily) * 100 : 0, need ? 'warn' : 'ok'),
       h('span.tiny.muted.num', { text: '今日 ' + made + '/' + daily })));
@@ -762,8 +901,30 @@ window.MZApp = (function () {
     if (window.MZBook && window.MZBook.moreSheet) { window.MZBook.moreSheet(n.id); return; }
     actions([
       { label: '打开作品页', icon: 'book', onPick: function () { openBook(n.id); } },
+      { label: n.pinned ? '取消置顶' : '置顶到书架最前', icon: 'star', onPick: function () { setPinned([n.id], !n.pinned); } },
+      { label: 'AI 根据书名写大纲', icon: 'spark', sub: hasOutline(n) ? '会覆盖现有大纲，先给你看再采纳' : '这本书还没有大纲',
+        onPick: function () { if (window.MZBook && window.MZBook.aiOutline) window.MZBook.aiOutline(n); } },
       { label: '删除作品', icon: 'trash', danger: true, sub: '进回收站，可恢复', onPick: function () { removeNovels([n.id]); } },
     ], { title: n.title || '作品' });
+  }
+
+  /* 批量置顶 / 取消置顶：一本一次 PUT，单本失败不打断整批 */
+  async function setPinned(ids, on) {
+    ids = (ids || []).map(Number).filter(function (x) { return !!x; });
+    if (!ids.length) return 0;
+    const bs = busySheet(on ? '正在置顶…' : '正在取消置顶…');
+    let done = 0;
+    for (let i = 0; i < ids.length; i++) {
+      try { await api.put('/api/novel/' + ids[i], { pinned: on ? 1 : 0 }); done++; }
+      catch (e) { /* 单本失败继续 */ }
+    }
+    bs.close();
+    toast(done ? ((on ? '已置顶 ' : '已取消置顶 ') + done + ' 本') : '操作失败', done ? 'ok' : 'bad');
+    if (done) haptic('success');
+    booksSel.mode = false; booksSel.ids = {};
+    await loadHero();
+    render();
+    return done;
   }
 
   /* 删作品：二次确认 → 一本一次 DELETE（进回收站）→ 单本失败不打断整批 */
@@ -789,7 +950,7 @@ window.MZApp = (function () {
   }
 
   async function removeSelected() {
-    const ids = Object.keys(booksSel.ids).filter(function (k) { return booksSel.ids[k]; });
+    const ids = pickedIds();
     if (!ids.length) return;
     const names = ids.map(novelTitleOf);
     await removeNovels(ids,
@@ -874,10 +1035,25 @@ window.MZApp = (function () {
 
     /* AI 给的方案先给作者过一眼，点「创建这本书」才写进去 */
     function planBox(plan) {
-      const box = h('div');
+      const box = h('div.plan-box');
       box.appendChild(h('div.section-title', { text: 'AI 方案（点「创建这本书」才写进去）' }));
+      if (plan.warn) {
+        box.appendChild(h('div.card.tight.small', { text: '提示：' + plan.warn }));
+      }
+      if (plan.tags && plan.tags.length) {
+        box.appendChild(h('div.chips.mt12', null, plan.tags.map(function (t) { return chip(String(t)); })));
+      }
+      if (plan.check) {
+        box.appendChild(h('div.card.tight.small.mt12', null,
+          h('b', { text: '贴合你给的方向：' }), h('span', { text: plan.check })));
+      }
+      if (plan.alt) {
+        box.appendChild(h('div.fld-hint', { text: '模型本来想叫《' + plan.alt + '》，书名还是按你填的来。' }));
+      }
       box.appendChild(h('div.card.tight.small.pre-wrap', { text: plan.intro || '（这次没给简介）' }));
-      box.appendChild(h('div.section-title', { text: '三幕大纲' }));
+      box.appendChild(h('div.section-title', null,
+        h('span', { text: '三幕大纲' }),
+        h('span.sp', { text: (plan.main || '').length + ' 字' })));
       box.appendChild(h('div.card.tight.small.pre-wrap', { text: plan.main || '（这次没给大纲）' }));
       if (plan.characters) {
         box.appendChild(h('div.section-title', { text: '人物' }));
@@ -887,11 +1063,10 @@ window.MZApp = (function () {
       if (chs.length) {
         box.appendChild(h('div.section-title', null, h('span', { text: '前 ' + chs.length + ' 章章纲' })));
         const l = h('div.list');
-        chs.slice(0, 8).forEach(function (c, i) {
-          l.appendChild(li({ title: String(i + 1) + '. ' + (c.title || ''), sub: c.brief || '' }));
+        chs.forEach(function (c, i) {
+          l.appendChild(li({ title: chapTitle(c, i), sub: c.brief || '' }));
         });
-        if (chs.length > 8) l.appendChild(li({ title: '…', sub: '还有 ' + (chs.length - 8) + ' 条章纲，建好后在作品页里看' }));
-        box.appendChild(l);
+        box.appendChild(h('div.plan-scroll', null, l));
       }
       return box;
     }
@@ -917,11 +1092,12 @@ window.MZApp = (function () {
           b.appendChild(fIdea.node);
           if (st.plan) {
             const chs = st.plan.chapters || [];
-            b.appendChild(h('div.fld-hint', { text: 'AI 方案已就绪：' + (st.plan.title ? '建议书名《' + st.plan.title + '》，' : '')
-              + '简介 / 三幕大纲 / 人物 / 前 ' + chs.length + ' 章章纲。点「创建这本书」写进去。' }));
+            b.appendChild(h('div.fld-hint', { text: 'AI 方案已就绪：'
+              + '简介 / 三幕大纲 / 人物 / 前 ' + chs.length + ' 章章纲。'
+              + '不对就点「按我的方向重写」，满意再点「创建这本书」。' }));
           }
           const pv = st.plan ? planBox(st.plan) : null;
-          if (pv) { pv.hidden = true; b.appendChild(pv); }
+          if (pv) b.appendChild(pv);
 
           function mkBtn(label, tone, onTap) {
             const el = h('button.btn' + (tone ? '.' + tone : ''), { type: 'button', text: label });
@@ -929,7 +1105,7 @@ window.MZApp = (function () {
             return el;
           }
           const row = h('div.btn-row');
-          row.appendChild(mkBtn(st.plan ? '重新写一份' : 'AI 写大纲', 'blue', async function () {
+          row.appendChild(mkBtn(st.plan ? (st.idea ? '按我的方向重写' : '重新写一份') : 'AI 写大纲', 'blue', async function () {
             st.title = fTitle.value().trim();
             st.author = fAuthor.value().trim();
             st.chan = picker.channel(); st.cat = picker.category();
@@ -937,25 +1113,29 @@ window.MZApp = (function () {
             close();
             const bs = busySheet('AI 正在构思大纲…');
             try {
-              const topic = [st.title, st.idea, st.cat].filter(Boolean).join(' ');
               const r = await api.post('/api/idea', {
-                topic: topic, channel: st.chan, category: st.cat || '都市', count: 20, create: 0,
+                idea: st.idea, title: st.title, channel: st.chan,
+                category: st.cat || '都市', count: 20, create: 0,
               }, { timeout: 300000 });
               bs.close();
               st.plan = {
                 title: r.title || '', intro: r.intro || '', characters: r.characters || '',
-                main: r.outline || '', chapters: r.chapters || [],
+                main: r.outline || '', chapters: r.chapters || [], alt: r.alt_title || '',
+                tags: r.tags || [], check: r.direction_check || '', warn: r.warn || '',
               };
               if (!st.title && st.plan.title) st.title = st.plan.title;
               haptic('success');
               openSheet();
-              toast('AI 方案已就绪，看看满意不', 'ok');
+              toast(r.warn ? 'AI 方案好了，方案里有一条提示' : 'AI 方案已就绪，看看满意不', 'ok');
             } catch (e) { bs.close(); toast(e.message, 'bad'); openSheet(); }
           }));
-          if (pv) row.appendChild(mkBtn('看看 AI 方案', '', function (el) {
-            pv.hidden = !pv.hidden;
-            el.textContent = pv.hidden ? '看看 AI 方案' : '收起 AI 方案';
-          }));
+          if (pv) {
+            pv.hidden = false;
+            row.appendChild(mkBtn('收起 AI 方案', '', function (el) {
+              pv.hidden = !pv.hidden;
+              el.textContent = pv.hidden ? '看看 AI 方案' : '收起 AI 方案';
+            }));
+          }
           row.appendChild(mkBtn('创建这本书', 'primary', async function () {
             st.title = fTitle.value().trim();
             st.author = fAuthor.value().trim();
@@ -2015,6 +2195,7 @@ window.MZApp = (function () {
     liveBusy: liveBusy, phaseLine: phaseLine, emptyBox: emptyBox, loadingBox: loadingBox, errBox: errBox,
     pending: pending, pendingDone: pendingDone, paintOps: paintOps, opsAll: opsAll,
     hitFixInstruction: hitFixInstruction,
+    chapTitle: chapTitle, setPinned: setPinned,
     _btn: function (label, tone, onTap, size) {
       const b = h('button.btn' + (tone ? '.' + tone : '') + (size === 'sm' ? '.sm' : ''), { type: 'button', text: label });
       b.addEventListener('click', function () { haptic('light'); onTap(); });
