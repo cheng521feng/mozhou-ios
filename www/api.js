@@ -42,13 +42,17 @@ window.MZ = (function () {
      App 里的页面跑在 capacitor://localhost，属于跨域，所以接口都要用绝对地址
      打到云服务器并带会话头。window.MZ_CLOUD 留给自己调试（本地假后端时设成空串）。
 
-     入口不止一个：域名入口带正规证书，但可能被云厂商以「未备案」为由拦掉
-     （HTTP 上是 403 拦截页，HTTPS 上直接 TLS 重置）；再留一个直连 IP 的 http
-     入口兜底。启动时探测一次，把能用的那个记在本地，之后一直用它；真发请求时
-     要是又断了，会自动重探、换一个入口重试一次。 */
+     入口不止一个，按「越稳越靠前」排：
+       1) https 域名入口（证书正规，走 443；实测可用）；
+       2) 直连 IP + 8900 端口（不经过 80/443，躲得开云厂商对「未备案域名」的
+          拦截，但要先在阿里云防火墙放行 8900；放行了它就是最稳的一个，
+          没放行就是 2.6 秒探测超时，不拖累别的入口）；
+       3) 纯 IP 的 80 端口（老兜底；纯 IP 不会被查备案，实测也能通）。
+    启动时全部并行探一次（探不通就 2.6 秒超时，互不拖累），把第一个能用的
+    记在本地，之后一直用它；真发请求时要是又断了，会自动重探、换一个入口重试一次。 */
   const CLOUDS = (window.MZ_CLOUD !== undefined && window.MZ_CLOUD !== null)
     ? (String(window.MZ_CLOUD) ? [String(window.MZ_CLOUD)] : [])
-    : ['https://47-101-72-16.sslip.io', 'http://47.101.72.16'];
+    : ['https://47-101-72-16.sslip.io', 'http://47.101.72.16:8900', 'http://47.101.72.16'];
   const CLOUD_KEY = 'mz_cloud';
   let CLOUD = '';
   try { CLOUD = localStorage.getItem(CLOUD_KEY) || ''; } catch (e) { CLOUD = ''; }
@@ -247,6 +251,31 @@ window.MZ = (function () {
     });
   }
 
+  /* 需要登录的 POST（改密码）：带上会话头，但不走 req() ——
+     req() 见到 401 就把人弹回登录页，而改密码恰恰要把「旧密码不对」「没登录」
+     这些话原样说给用户听。 */
+  async function postAuth(path, body) {
+    const payload = JSON.stringify(body || {});
+    const send = function () {
+      const hd = authHeaders();
+      hd['Content-Type'] = 'application/json';
+      return fetch(url(path), { method: 'POST', cache: 'no-store', headers: hd, body: payload });
+    };
+    if (!CLOUD && CLOUDS.length) await pickCloud(false);
+    let resp;
+    try {
+      resp = await send();
+      if (blockedPage(resp)) throw new Error('blocked');
+    } catch (e) {
+      const nb = await pickCloud(true).catch(function () { return ''; });
+      useCloud(nb);
+      resp = await send();
+    }
+    let data = null;
+    try { data = await resp.json(); } catch (e2) { data = null; }
+    return { resp: resp, data: data };
+  }
+
   /* 注册：先发短信验证码，再带上验证码注册；成功后服务器直接给会话口令，不用再登一遍。 */
   function sms(phone, purpose) {
     return postCloud('/api/mz/sms', { phone: String(phone || '').replace(/^\s+|\s+$/g, ''), purpose: purpose || 'register' });
@@ -256,6 +285,34 @@ window.MZ = (function () {
       phone: String(phone || '').replace(/^\s+|\s+$/g, ''),
       code: String(code || '').replace(/^\s+|\s+$/g, ''),
       password: String(password || ''),
+    });
+  }
+
+  /* 忘记密码：手机号 + 短信验证码（purpose=reset）→ 新密码。成功直接给会话口令。 */
+  function resetPassword(phone, code, password, password2) {
+    return postCloud('/api/mz/reset', {
+      phone: String(phone || '').replace(/^\s+|\s+$/g, ''),
+      code: String(code || '').replace(/^\s+|\s+$/g, ''),
+      password: String(password || ''),
+      password2: String(password2 === undefined ? password : password2),
+    });
+  }
+
+  /* 登录后改密码：填旧密码那条路。 */
+  function changePassword(oldPw, password, password2) {
+    return postAuth('/api/mz/password', {
+      old_password: String(oldPw || ''),
+      password: String(password || ''),
+      password2: String(password2 === undefined ? password : password2),
+    });
+  }
+
+  /* 登录后改密码：给本机号发一条 purpose=change 的验证码那条路。 */
+  function changePasswordByCode(code, password, password2) {
+    return postAuth('/api/mz/password', {
+      code: String(code || '').replace(/^\s+|\s+$/g, ''),
+      password: String(password || ''),
+      password2: String(password2 === undefined ? password : password2),
     });
   }
 
@@ -911,6 +968,8 @@ window.MZ = (function () {
     emptyBox: emptyBox, loadingBox: loadingBox, errBox: errBox,
     setToken: setToken, getToken: getToken, login: login,
     postCloud: postCloud, sms: sms, register: register,
+    postAuth: postAuth, resetPassword: resetPassword,
+    changePassword: changePassword, changePasswordByCode: changePasswordByCode,
     url: url, img: img, authHeaders: authHeaders, setSession: setSession, logout: logout,
     clouds: CLOUDS.slice(), pickCloud: pickCloud, useCloud: useCloud,
     get CLOUD() { return CLOUD || CLOUDS[0] || ''; },
