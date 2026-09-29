@@ -1473,6 +1473,12 @@ window.MZApp = (function () {
       const e = $('#loginErr'); if (e) e.hidden = true;
       showRegister();
     });
+    const fg = $('#loginForgot');
+    if (fg) fg.addEventListener('click', function () {
+      haptic('light');
+      const e = $('#loginErr'); if (e) e.hidden = true;
+      showForgot();
+    });
     bindEye();
   }
 
@@ -1492,7 +1498,7 @@ window.MZApp = (function () {
     };
     const phoneInp = mkInp({ ph: '11 位手机号', inputmode: 'numeric', maxlength: '11', ac: 'tel' });
     const codeInp = mkInp({ ph: '6 位数字', inputmode: 'numeric', maxlength: '6', ac: 'one-time-code' });
-    const pwInp = mkInp({ ph: '至少 6 位', type: 'password', ac: 'new-password' });
+    const pwInp = mkInp({ ph: '至少 8 位，别用纯数字', type: 'password', ac: 'new-password' });
     const pw2Inp = mkInp({ ph: '再输一遍', type: 'password', ac: 'new-password' });
 
     /* 密码眼睛：和登录页一样，怕输错就点开看一眼 */
@@ -1553,7 +1559,7 @@ window.MZApp = (function () {
       const pw = String(pwInp.value || ''), pw2 = String(pw2Inp.value || '');
       if (!/^1\d{10}$/.test(ph)) { toast('手机号要 11 位，别漏了', 'bad'); return; }
       if (!code) { toast('先填短信验证码', 'bad'); return; }
-      if (pw.length < 6) { toast('密码至少 6 位', 'bad'); return; }
+      if (pw.length < 8) { toast('密码至少 8 位', 'bad'); return; }
       if (pw !== pw2) { toast('两次密码不一样', 'bad'); return; }
       goBtn.disabled = true;
       goBtn.textContent = '注册中…';
@@ -1602,6 +1608,165 @@ window.MZApp = (function () {
     });
   }
   let regCtl = null;
+
+  /* ============================== 密码：忘记 / 修改 ==============================
+     两条路共用一张表单（跟注册那张一个风格）：
+       · 忘记密码 forgot：手机号 + 短信验证码（purpose=reset）+ 新密码；
+       · 登录后改密码 change：旧密码，或者给本机号发一条 purpose=change 的验证码 + 新密码。
+     密码规则跟服务端一致：至少 8 位、不能纯数字。改完服务端会作废别处的登录态，
+     所以这里要把返回的新口令收下来，免得自己也被踢出去。 */
+  function showPwSheet(opt) {
+    const mode = opt && opt.mode === 'change' ? 'change' : 'forgot';
+    let timer = null;
+    const mk = function (o) {
+      return h('input.inp', {
+        type: o.type || 'text', placeholder: o.ph || '',
+        inputmode: o.inputmode || 'text', maxlength: o.maxlength || '',
+        autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false',
+        autocomplete: o.ac || 'off',
+      });
+    };
+    const phoneInp = mode === 'forgot' ? mk({ ph: '11 位手机号', inputmode: 'numeric', maxlength: '11', ac: 'tel' }) : null;
+    const oldInp = mode === 'change' ? mk({ type: 'password', ph: '现在用的密码', ac: 'current-password' }) : null;
+    const codeInp = mk({ ph: '6 位数字', inputmode: 'numeric', maxlength: '6', ac: 'one-time-code' });
+    const pwInp = mk({ type: 'password', ph: '至少 8 位，别用纯数字', ac: 'new-password' });
+    const pw2Inp = mk({ type: 'password', ph: '再输一遍新密码', ac: 'new-password' });
+
+    /* 密码眼睛：跟登录页一样，怕输错就点开看一眼 */
+    const eye = h('button.eye', { type: 'button', 'aria-label': '显示密码', title: '显示密码', html: EYE_SVG });
+    eye.addEventListener('click', function () {
+      const show = pwInp.type === 'password';
+      pwInp.type = show ? 'text' : 'password';
+      eye.innerHTML = show ? OFF_SVG : EYE_SVG;
+      eye.className = 'eye' + (show ? ' on' : '');
+    });
+
+    const capTip = h('div.fld-hint');
+    const getBtn = h('button.btn.sm', { type: 'button', text: '获取验证码' });
+    const purpose = mode === 'forgot' ? 'reset' : 'change';
+
+    getBtn.addEventListener('click', async function () {
+      let ph = '';
+      if (mode === 'forgot') {
+        ph = String(phoneInp.value || '').trim();
+        if (!/^1\d{10}$/.test(ph)) { toast('手机号看起来不对（要 11 位）', 'bad'); return; }
+      }
+      getBtn.disabled = true;
+      getBtn.textContent = '发送中…';
+      let d = null;
+      try {
+        /* 改密码模式：手机号由服务器按登录会话认，本地知道就顺手带上 */
+        const who = mode === 'forgot' ? ph : ((state.profile && state.profile.phone) || '');
+        const rp = await MZ.sms(who, purpose);
+        d = rp.data || {};
+        if (!rp.resp.ok || d.ok === false) throw new Error(d.msg || d.error || '发送失败');
+      } catch (e) {
+        getBtn.disabled = false;
+        getBtn.textContent = '获取验证码';
+        toast((e && e.message) || '发送失败', 'bad');
+        return;
+      }
+      if (d && d.debug_code) {
+        capTip.textContent = '测试模式：验证码是 ' + d.debug_code + '（已帮你填上）';
+        codeInp.value = d.debug_code;
+      } else {
+        capTip.textContent = (d && d.msg) || '验证码已发出，5 分钟内有效';
+      }
+      let n = 60;
+      getBtn.textContent = n + ' 秒后重发';
+      timer = setInterval(function () {
+        n -= 1;
+        if (n <= 0) {
+          clearInterval(timer); timer = null;
+          getBtn.disabled = false;
+          getBtn.textContent = '重新获取';
+        } else getBtn.textContent = n + ' 秒后重发';
+      }, 1000);
+    });
+
+    const goBtn = h('button.btn.primary', { type: 'button', text: '确定' });
+    goBtn.addEventListener('click', async function () {
+      const code = String(codeInp.value || '').trim();
+      const pw = String(pwInp.value || ''), pw2 = String(pw2Inp.value || '');
+      if (pw.length < 8) { toast('新密码至少 8 位', 'bad'); return; }
+      if (pw !== pw2) { toast('两次密码不一样', 'bad'); return; }
+      goBtn.disabled = true;
+      goBtn.textContent = '提交中…';
+      let d = null, rp = null;
+      try {
+        if (mode === 'forgot') {
+          const ph = String(phoneInp.value || '').trim();
+          if (!/^1\d{10}$/.test(ph)) throw new Error('手机号要 11 位，别漏了');
+          if (!code) throw new Error('先填短信验证码');
+          rp = await MZ.resetPassword(ph, code, pw, pw2);
+        } else {
+          const oldv = String(oldInp.value || '');
+          if (!oldv && !code) throw new Error('填旧密码，或者发一条验证码');
+          rp = oldv ? await MZ.changePassword(oldv, pw, pw2)
+                    : await MZ.changePasswordByCode(code, pw, pw2);
+        }
+        d = rp.data || {};
+        if (!rp.resp.ok || !d.ok) throw new Error(d.error || d.msg || '提交失败');
+      } catch (e) {
+        goBtn.disabled = false;
+        goBtn.textContent = '确定';
+        toast((e && e.message) || '提交失败', 'bad');
+        return;
+      }
+      if (timer) { clearInterval(timer); timer = null; }
+      /* 服务器改完密码会把老会话作废，这里收下新口令，自己不掉线 */
+      if (d.token) MZ.setSession(d.token);
+      if (mode === 'forgot' && d.name !== undefined) {
+        state.profile = {
+          name: d.name || '', username: d.username || '', pen_name: d.pen_name || '',
+          gender: d.gender || '', age: d.age || '', avatar: !!d.avatar,
+          avatar_url: d.avatar_url || '', welcome: !!d.first_time, masked: d.masked || '',
+        };
+      }
+      if (ctl) ctl.close();
+      haptic('success');
+      if (mode === 'forgot') {
+        toast('密码已改，欢迎回来', 'ok');
+        enterApp(true);
+      } else {
+        toast('密码已改，别的地方要重新登录', 'ok');
+        loadProfile().then(function () { render(); }, function () {});
+      }
+    });
+
+    const rows = h('div');
+    if (mode === 'forgot') {
+      rows.appendChild(h('div.fld-hint', { text: '用注册时那个手机号收一条验证码，就能换个新密码；改完直接登进去。' }));
+      rows.appendChild(h('div.fld', null, h('label', { text: '手机号' }), phoneInp));
+      rows.appendChild(h('div.fld', null, h('label', { text: '短信验证码' }),
+        h('div.reg-cap', null, codeInp, getBtn)));
+    } else {
+      rows.appendChild(h('div.fld-hint', { text: '填旧密码就行；要是忘了旧密码，给本机号发一条验证码也能改（两个填一个）。' }));
+      rows.appendChild(h('div.fld', null, h('label', { text: '旧密码' }), oldInp));
+      rows.appendChild(h('div.fld', null, h('label', { text: '短信验证码' }),
+        h('div.reg-cap', null, codeInp, getBtn)));
+    }
+    rows.appendChild(capTip);
+    rows.appendChild(h('div.fld', null, h('label', { text: '新密码' }),
+      h('div.pw', null, pwInp, eye)));
+    rows.appendChild(h('div.fld', null, h('label', { text: '再输一遍新密码' }), pw2Inp));
+    const btns = h('div.btn-row');
+    btns.appendChild(goBtn);
+    const cancel = h('button.btn', { type: 'button', text: '取消' });
+    cancel.addEventListener('click', function () { haptic('light'); if (ctl) ctl.close(); });
+    btns.appendChild(cancel);
+    rows.appendChild(btns);
+    rows.appendChild(h('div.footnote', { text: '改完密码，别的手机 / 电脑上的登录状态会自动失效，要用新密码重新登。' }));
+
+    var ctl = sheet({
+      title: mode === 'forgot' ? '忘记密码' : '修改密码',
+      node: rows,
+      onClose: function () { if (timer) { clearInterval(timer); timer = null; } },
+    });
+  }
+
+  function showForgot() { showPwSheet({ mode: 'forgot' }); }
+  function showChangePw() { showPwSheet({ mode: 'change' }); }
 
   /* 密码眼睛：点一下在「•••」和明文之间切换，防止输错 */
   function bindEye() {
@@ -1841,6 +2006,7 @@ window.MZApp = (function () {
     findNovel: findNovel, openBook: openBook, openTokenDialog: openTokenDialog,
     applyTheme: applyTheme, getTheme: getTheme, themePref: themePref, isLightTheme: isLightTheme,
     showLogin: showLogin, doLogin: doLogin, showRegister: showRegister,
+    showForgot: showForgot, showChangePw: showChangePw,
     pick: pick, li: li, card: card, kpi: kpi, buttons: buttons, seg: seg, bar: barOf,
     span: span, txt: txt, busySheet: busySheet, startJob: startJob, newNovel: newNovel,
     newNovelMenu: newNovelMenu, importNovel: importNovel, removeNovels: removeNovels, exportNovel: exportNovel,
