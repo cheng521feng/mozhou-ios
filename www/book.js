@@ -25,7 +25,7 @@
 
 window.MZBook = (function () {
   const { h, clear, api, toast, sheet, actions, modal, confirm, haptic, icon, chip,
-          fmtNum, timeAgo, emptyBox, loadingBox } = MZ;
+          fmtNum, timeAgo, emptyBox, loadingBox, hold, saveImage } = MZ;
   const A = window.MZApp;
   const { li, buttons, bar, busySheet } = A;
 
@@ -148,18 +148,29 @@ window.MZBook = (function () {
   }
 
   function coverNode(n, cls) {
+    /* 给封面挂上「点一下 / 长按都出菜单」；图片加载失败换成占位块时也要过这里，
+       不然封面图一 404，长按就再也弹不出菜单了。 */
+    function bindCover(el) {
+      const hh = hold(el, function () { coverSheet(n); });
+      el.addEventListener('click', function () {
+        if (hh.swallow()) return;
+        haptic('light');
+        coverSheet(n);
+      });
+      return el;
+    }
     if (n.cover_url) {
-      return h('img' + (cls || '.cover'), {
+      return bindCover(h('img' + (cls || '.cover'), {
         src: MZ.img(n.cover_url), alt: '', decoding: 'async',
         onerror: function (e) {
           const im = e && e.currentTarget;
           if (im && im.parentNode) {
-            im.parentNode.replaceChild(h('div' + (cls || '.cover'), { text: (n.title || '书').slice(0, 1) }), im);
+            im.parentNode.replaceChild(bindCover(h('div' + (cls || '.cover'), { text: (n.title || '书').slice(0, 1) })), im);
           }
         },
-      });
+      }));
     }
-    return h('div' + (cls || '.cover'), { text: (n.title || '书').slice(0, 1) });
+    return bindCover(h('div' + (cls || '.cover'), { text: (n.title || '书').slice(0, 1) }));
   }
 
   function head(n) {
@@ -205,7 +216,8 @@ window.MZBook = (function () {
       { label: 'AI 爆款化书名/简介', onTap: function () { viralize(n); } },
     ]);
     row([
-      { label: 'AI 生成封面', onTap: function () { genCover(n); } },
+      { label: n.cover_url ? '重画封面' : 'AI 生成封面', onTap: function () { genCover(n); } },
+      { label: '保存封面', onTap: function () { saveCover(n); } },
       { label: '重写前几章', onTap: function () { A.askRewrite(n); } },
     ]);
     row([
@@ -623,19 +635,71 @@ window.MZBook = (function () {
     });
   }
 
-  /* ---------- AI 生成封面 ---------- */
-  async function genCover(n) {
-    const ok = await confirm('让 AI 给《' + (n.title || '') + '》画一张封面？会调用图片模型，可能要几十秒。', { okText: '生成封面' });
-    if (!ok) return;
-    const bs = busySheet('AI 正在画封面…');
+  /* ---------- 封面：保存 / 预览 / 重画 ---------- */
+  function coverName(n) { return (n.title || 'cover') + '-封面.png'; }
+
+  /* 长按封面就能存：手机壳里写进「文件 → 墨舟 → 墨舟封面」，
+     再弹系统分享面板（点「存储图像」就进相册）。 */
+  async function saveCover(n) {
+    if (!n || !n.cover_url) { toast('这本书还没有封面，先点「AI 生成封面」', 'warn'); return; }
+    const bs = busySheet('正在保存封面…');
     try {
-      await api.post('/api/novel/' + n.id + '/cover', {}, { timeout: 300000 });
+      const r = await saveImage(n.cover_url, coverName(n));
       bs.close();
-      toast('封面已生成', 'ok');
+      if (r && r.native) toast('已存到「文件 → 墨舟 → 墨舟封面」；分享面板里点「存储图像」就能进相册', 'ok');
+      else if (r && r.opened) toast('已在新窗口打开图片，长按图片选「存储到照片」', 'ok');
+      else toast('封面已保存', 'ok');
       haptic('success');
-      await A.loadHero();
-      A.render();
-    } catch (e) { bs.close(); toast(e.message, 'bad'); }
+    } catch (e) { bs.close(); toast((e && e.message) || '保存失败', 'bad'); }
+  }
+
+  function coverPreview(n) {
+    if (!n || !n.cover_url) { toast('这本书还没有封面', 'warn'); return; }
+    sheet({
+      title: '封面预览', height: 'auto',
+      node: h('div',
+        h('img', { src: MZ.img(n.cover_url), alt: '', decoding: 'async',
+          style: { width: '100%', maxWidth: '340px', display: 'block', margin: '0 auto', borderRadius: '14px' } }),
+        h('div.small.muted.mt12', { text: '长按图片也能存到相册；点下面的按钮会弹系统分享面板。' }),
+        buttons([{ label: '保存到相册 / 文件', tone: 'primary', onTap: function () { saveCover(n); } }])),
+    });
+  }
+
+  function coverSheet(n) {
+    if (!n) return;
+    const items = [];
+    if (n.cover_url) {
+      items.push({ label: '保存封面', sub: '存到相册 / 文件', icon: 'download', onPick: function () { saveCover(n); } });
+      items.push({ label: '看大图', icon: 'eye', onPick: function () { coverPreview(n); } });
+    }
+    items.push({ label: n.cover_url ? '重画一张' : 'AI 生成封面', icon: 'spark', onPick: function () { genCover(n); } });
+    actions(items, { title: '《' + (n.title || '') + '》封面' });
+  }
+
+  /* ---------- AI 生成封面（可写给 AI 的画面要求 / 画风） ---------- */
+  async function genCover(n) {
+    const s = sheet({ title: 'AI 画封面 · 《' + (n.title || '') + '》', height: 'auto' });
+    const hint = textField('画面要求（可留空）', '', { area: true, rows: 3,
+      ph: '例如：雪夜城楼、主角提刀回头、冷蓝色调' });
+    const style = textField('画风（可留空）', '', { ph: '例如：国漫插画 / 水墨 / 港漫质感' });
+    s.body.appendChild(h('div.small.muted.mb12', { text: '会按书名、简介、大纲、人物卡自动设计，并把书名和作者直接画在画面上。写点要求它更听话。' }));
+    s.body.appendChild(hint.node);
+    s.body.appendChild(style.node);
+    s.body.appendChild(buttons([
+      { label: '开始画（约 30~90 秒）', tone: 'primary', onTap: async function () {
+        const h2 = hint.value().trim(), st = style.value().trim();
+        s.close();
+        const bs = busySheet('AI 正在画封面…');
+        try {
+          await api.post('/api/novel/' + n.id + '/cover', { hint: h2, style: st }, { timeout: 300000 });
+          bs.close();
+          toast('封面已生成：长按封面可以保存到相册', 'ok');
+          haptic('success');
+          await A.loadHero();
+          A.render();
+        } catch (e) { bs.close(); toast(e.message, 'bad'); }
+      } },
+    ]));
   }
 
   /* ---------- 交给后端的作业（进度看底部任务条 / 任务页） ---------- */
@@ -670,6 +734,8 @@ window.MZBook = (function () {
         sub: n.has_outline ? '会覆盖现有大纲，先给你看再采纳' : '这本书还没有大纲',
         onPick: function () { aiOutline(n); } },
       { label: '无人值守续写', icon: 'play', onPick: function () { unattended(n); } },
+      { label: n.cover_url ? '重画封面' : 'AI 生成封面', icon: 'spark', onPick: function () { genCover(n); } },
+      { label: '保存封面', icon: 'download', sub: '存到相册 / 文件', onPick: function () { saveCover(n); } },
       { label: '导出 txt', icon: 'download', onPick: function () { A.exportNovel(n); } },
       { label: '删除作品', icon: 'trash', danger: true, sub: '进回收站，可恢复', onPick: function () { remove(n); } },
     ], { title: n.title || '作品' });
@@ -678,6 +744,7 @@ window.MZBook = (function () {
   return {
     open: open, editMeta: editMeta, aiOutline: aiOutline, remove: remove,
     moreSheet: moreSheet, field: textField, toggle: toggleRow,
+    coverSheet: coverSheet, saveCover: saveCover, genCover: genCover,
     picker: genrePicker, genres: loadGenres,
   };
 })();
