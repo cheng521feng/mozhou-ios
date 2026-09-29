@@ -18,7 +18,7 @@
 
 window.MZ = (function () {
   const SVGNS = 'http://www.w3.org/2000/svg';
-  const VERSION = '1.4';
+  const VERSION = '1.5';
 
   /* ============================== 会话与地址 ============================== */
   const TOKEN_KEY = 'mz_token';
@@ -359,6 +359,74 @@ window.MZ = (function () {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(urlObj); }, 4000);
     return { saved: true, native: false, name: name };
+  }
+
+  /* 存图片（封面 / 插图）。手机壳里先把图写进 App 的「文件」目录
+     （文件 App → 我的 iPhone → 墨舟 → 墨舟封面），再弹系统分享面板——面板里的「存储图像」
+     就能存进相册；浏览器里退化成 <a download>。返回 {saved, native, name, uri}。 */
+  function blobToB64(blob) {
+    return new Promise(function (resolve, reject) {
+      const fr = new FileReader();
+      fr.onload = function () {
+        const t = String(fr.result || '');
+        const i = t.indexOf(',');
+        resolve(i >= 0 ? t.slice(i + 1) : t);
+      };
+      fr.onerror = function () { reject(new Error('读取图片失败')); };
+      fr.readAsDataURL(blob);
+    });
+  }
+  async function saveImage(src, filename) {
+    const name = safeName(filename, 'mozhou.png');
+    const Cap = window.Capacitor;
+    const native = !!(Cap && typeof Cap.isNativePlatform === 'function' && Cap.isNativePlatform());
+    const FS = native && Cap.Plugins ? Cap.Plugins.Filesystem : null;
+    let blob = null;
+    try {
+      const resp = await fetch(url(src), { headers: authHeaders() });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      blob = await resp.blob();
+    } catch (e) {
+      /* 取不到图（比如浏览器里跨域）就交给系统打开：长按图片本身也能「存储到照片」 */
+      if (native) throw new Error('下载图片失败：' + ((e && e.message) || e));
+      const a = h('a', { href: url(src), target: '_blank', rel: 'noopener' });
+      document.body.appendChild(a); a.click(); a.remove();
+      return { saved: false, opened: true, name: name };
+    }
+    if (FS) {
+      const b64 = await blobToB64(blob);
+      const res = await FS.writeFile({ path: '墨舟封面/' + name, data: b64, directory: 'DOCUMENTS', recursive: true });
+      const SH = Cap.Plugins.Share;
+      if (SH) {
+        try { await SH.share({ title: name, files: [res.uri], dialogTitle: '保存封面' }); } catch (e) { /* 取消不算失败 */ }
+      }
+      return { saved: true, native: true, uri: res.uri, name: name };
+    }
+    const urlObj = URL.createObjectURL(blob);
+    const a = h('a', { href: urlObj, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(urlObj); }, 4000);
+    return { saved: true, native: false, name: name };
+  }
+
+  /* 长按：按住 480ms 触发（带一下触感），手指一移动就取消；
+     回到的 swallow() 用来吞掉长按后系统补发的那次 click（不然会长按弹菜单、松手又跳转页面）。
+     桌面浏览器里右键也算长按，方便调试。 */
+  function hold(el, onHold, ms) {
+    let t = null, fired = false;
+    const cancel = function () { if (t) { clearTimeout(t); t = null; } };
+    el.addEventListener('touchstart', function () {
+      fired = false; cancel();
+      t = setTimeout(function () { t = null; fired = true; haptic('medium'); onHold(); }, ms || 480);
+    }, { passive: true });
+    el.addEventListener('touchend', cancel, { passive: true });
+    el.addEventListener('touchmove', cancel, { passive: true });
+    el.addEventListener('touchcancel', cancel, { passive: true });
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); onHold(); });
+    return {
+      swallow: function () { if (fired) { fired = false; return true; } return false; },
+      fired: function () { return fired; },
+    };
   }
 
   /* ============================== hyperscript ============================== */
@@ -960,8 +1028,8 @@ window.MZ = (function () {
     h: h, frag: frag, add: add, clear: clear, $: $, $$: $$,
     icon: icon, brand: brand, ICONS: ICONS,
     haptic: haptic, toast: toast, sheet: sheet, actions: actions, modal: modal, confirm: confirm,
-    saveText: saveText, b64utf8: b64utf8,
-    attachPull: attachPull, ripple: ripple, skeleton: skeleton, clipboard: clipboard,
+    saveText: saveText, saveImage: saveImage, b64utf8: b64utf8,
+    attachPull: attachPull, ripple: ripple, skeleton: skeleton, clipboard: clipboard, hold: hold,
     ring: ring, bar: bar, chip: chip, countNode: countNode, countUp: countUp,
     fmtNum: fmtNum, fmtWords: fmtWords, fmtDur: fmtDur, fmtDate: fmtDate, timeAgo: timeAgo,
     debounce: debounce, sleep: sleep, reduceMotion: reduceMotion,
