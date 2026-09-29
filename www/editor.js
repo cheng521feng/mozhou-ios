@@ -55,6 +55,24 @@ window.MZEditor = (function () {
   function paraTextNode(text) { return h('div.para-text.pre-wrap', { text: text }); }
   function noteNode(text) { return h('div.footnote', { text: text }); }
 
+  /* 不含空白的字数（和顶部 chip 的口径一致） */
+  function plainChars(t) { return String(t || '').replace(/\s/g, '').length; }
+
+  /* 找出一段文本里所有匹配位置（大小写不敏感）。查找/替换用。 */
+  function findMatches(text, needle) {
+    const n = String(needle || '');
+    if (!n) return [];
+    const hay = String(text || '').toLowerCase();
+    const nee = n.toLowerCase();
+    const out = [];
+    let i = hay.indexOf(nee);
+    while (i >= 0) {
+      out.push({ start: i, end: i + nee.length });
+      i = hay.indexOf(nee, i + Math.max(1, nee.length));
+    }
+    return out;
+  }
+
   /* ============================== 写作标签页 ============================== */
   A.screens.write = function () {
     return {
@@ -109,21 +127,38 @@ window.MZEditor = (function () {
         (n.metrics || []).forEach(function (m) { scoreMap[m.idx] = m.score; });
         out.appendChild(h('div.section-title', null,
           h('span', { text: '章节' }), h('span.sp', { text: '点开就能改 · 共 ' + chapters.length + ' 章' })));
-        const l = h('div.list.rise-list');
-        chapters.slice(0, 40).forEach(function (c, i) {
-          const sc = scoreMap[c.idx];
-          const row = li({
-            title: '第 ' + c.idx + ' 章　' + (c.title || ''),
-            sub: fmtNum(c.chars || 0) + ' 字 · ' + (c.updated_at ? timeAgo(c.updated_at) : ''),
-            right: sc === undefined ? null : chip(String(Math.round(sc)), sc >= 75 ? 'ok' : (sc >= 55 ? '' : 'bad')),
-            arrow: true,
-            onTap: function () { openChapter(selectedNovelId, c.id, { title: c.title, idx: c.idx, nid: selectedNovelId }); },
+        const kw = h('input.inp', { type: 'search', placeholder: '输入章号或标题找章节…', spellcheck: 'false' });
+        out.appendChild(kw);
+        const listBox = h('div.list.rise-list');
+        const moreBox = h('div.mt12');
+        out.appendChild(listBox); out.appendChild(moreBox);
+        let limit = 40;
+        function paintList() {
+          const k = (kw.value || '').trim().toLowerCase();
+          const hits = k ? chapters.filter(function (c) {
+            return String(c.idx).indexOf(k) >= 0 || String(c.title || '').toLowerCase().indexOf(k) >= 0;
+          }) : chapters;
+          clear(listBox); clear(moreBox);
+          hits.slice(0, limit).forEach(function (c, i) {
+            const sc = scoreMap[c.idx];
+            const row = li({
+              title: '第 ' + c.idx + ' 章　' + (c.title || ''),
+              sub: fmtNum(c.chars || 0) + ' 字 · ' + (c.updated_at ? timeAgo(c.updated_at) : ''),
+              right: sc === undefined ? null : chip(String(Math.round(sc)), sc >= 75 ? 'ok' : (sc >= 55 ? '' : 'bad')),
+              arrow: true,
+              onTap: function () { openChapter(selectedNovelId, c.id, { title: c.title, idx: c.idx, nid: selectedNovelId }); },
+            });
+            row.style.setProperty('--i', String(i));
+            listBox.appendChild(row);
           });
-          row.style.setProperty('--i', String(i));
-          l.appendChild(row);
-        });
-        out.appendChild(l);
-        if (chapters.length > 40) out.appendChild(buttons([{ label: '查看全部 ' + chapters.length + ' 章', onTap: function () { A.openBook(selectedNovelId); } }]));
+          if (!hits.length) moreBox.appendChild(h('div.small.muted.center', { text: '没找到「' + k + '」相关的章节' }));
+          else if (hits.length > limit) {
+            moreBox.appendChild(buttons([{ label: '再显示 40 章（还有 ' + (hits.length - limit) + ' 章）',
+              onTap: function () { limit += 40; paintList(); } }]));
+          }
+        }
+        kw.addEventListener('input', function () { limit = 40; paintList(); });
+        paintList();
         return out;
       },
     };
@@ -326,6 +361,63 @@ window.MZEditor = (function () {
   let ed = null;
   let inspector = null;      /* 打开着的检查抽屉：{tab, paint()} */
 
+  /* ---- 正文字号 / 行距：只记在这台设备上，换章、重开都还在 ---- */
+  const FS_KEY = 'mz_ed_fs', LH_KEY = 'mz_ed_lh';
+  const FS_STEPS = [15, 16, 17, 18, 19, 20, 22, 24];
+  const LH_STEPS = [1.6, 1.75, 1.85, 1.95, 2.1];
+  function readNum(key, def) {
+    try { const v = parseFloat(localStorage.getItem(key)); return (isFinite(v) && v > 0) ? v : def; }
+    catch (e) { return def; }
+  }
+  function writeNum(key, v) { try { localStorage.setItem(key, String(v)); } catch (e) { /* 忽略 */ } }
+  function textPrefs() { return { fs: readNum(FS_KEY, 17), lh: readNum(LH_KEY, 1.85) }; }
+  function applyTextPrefs() {
+    if (!ed || !ed.wrap) return;
+    const p = textPrefs();
+    ed.wrap.style.setProperty('--ed-fs', p.fs + 'px');
+    ed.wrap.style.setProperty('--ed-lh', String(p.lh));
+  }
+  function fontSheet() {
+    const box = h('div');
+    const fsLabel = h('span.chip');
+    const lhLabel = h('span.chip');
+    function paintChips() {
+      const p = textPrefs();
+      fsLabel.textContent = '字号 ' + p.fs;
+      lhLabel.textContent = '行距 ' + p.lh;
+    }
+    function setF(step) {
+      const cur = textPrefs().fs;
+      let i = FS_STEPS.indexOf(Math.round(cur));
+      if (i < 0) i = FS_STEPS.indexOf(17);
+      i = Math.max(0, Math.min(FS_STEPS.length - 1, i + step));
+      writeNum(FS_KEY, FS_STEPS[i]); applyTextPrefs(); paintChips(); haptic('light');
+    }
+    function setL(step) {
+      const cur = textPrefs().lh;
+      let i = 0;
+      for (let k = 1; k < LH_STEPS.length; k++) { if (Math.abs(LH_STEPS[k] - cur) < Math.abs(LH_STEPS[i] - cur)) i = k; }
+      i = Math.max(0, Math.min(LH_STEPS.length - 1, i + step));
+      writeNum(LH_KEY, LH_STEPS[i]); applyTextPrefs(); paintChips(); haptic('light');
+    }
+    function prow(label, down, up, tag) {
+      return h('div.row', { style: { gap: '8px', alignItems: 'center', marginTop: '8px' } },
+        h('span.small.muted', { style: { flex: '0 0 auto', width: '42px' }, text: label }),
+        A._btn(down, '', function () { (label === '字号' ? setF : setL)(-1); }),
+        A._btn(up, '', function () { (label === '字号' ? setF : setL)(1); }),
+        h('span.sp'),
+        tag);
+    }
+    box.appendChild(h('div.card.tight', null,
+      prow('字号', '小 A', '大 A', fsLabel),
+      prow('行距', '紧一点', '松一点', lhLabel)));
+    box.appendChild(noteNode('只存在这台设备上，不影响别人。沉浸模式下也照样生效。'));
+    box.appendChild(h('div.mt12', null, buttons([{ label: '恢复默认（17 号 / 1.85 倍）',
+      onTap: function () { writeNum(FS_KEY, 17); writeNum(LH_KEY, 1.85); applyTextPrefs(); paintChips(); haptic('light'); } }])));
+    paintChips();
+    sheet({ title: '正文字号与行距', build: function (b) { b.appendChild(box); } });
+  }
+
   async function openChapter(nid, cid, opt) {
     opt = opt || {};
     if (ed) return;
@@ -336,16 +428,356 @@ window.MZEditor = (function () {
       nid: nid, cid: cid, dirty: false, saving: false, data: null,
       wrap: wrap, check: {}, timers: [], savedAt: '',
     };
+    applyTextPrefs();
 
     /* ---- 顶部：返回 / 章号 / 检查 ---- */
     const nav = h('div.ed-nav');
     const navRow = h('div.nb-row');
     const back = h('button.nb-back', { type: 'button' }, h('span', { text: '‹' }));
-    const navTitle = h('div.nb-title', { text: opt.idx ? '第 ' + opt.idx + ' 章' : '章节' });
+    const prevBtn = h('button.ed-step', { type: 'button', 'aria-label': '上一章' }, h('span', { text: '‹' }));
+    const nextBtn = h('button.ed-step', { type: 'button', 'aria-label': '下一章' }, h('span', { text: '›' }));
+    const navTitle = h('button.ed-titletap', { type: 'button', text: opt.idx ? '第 ' + opt.idx + ' 章' : '章节' });
+    const immersiveBtn = h('button.nb-action.ed-nb-sm', { type: 'button', 'aria-label': '沉浸模式' }, icon('eye', { size: 17 }));
     const navAct = h('button.nb-action', { type: 'button', text: '检查' });
-    navRow.appendChild(back); navRow.appendChild(navTitle); navRow.appendChild(navAct);
+    navRow.appendChild(back); navRow.appendChild(prevBtn); navRow.appendChild(navTitle);
+    navRow.appendChild(nextBtn); navRow.appendChild(immersiveBtn); navRow.appendChild(navAct);
     const meta = h('div.ed-meta');
     nav.appendChild(navRow); nav.appendChild(meta);
+
+    /* ---- 章节目录：上一章 / 下一章 / 点标题跳章 ---- */
+    let chList = [];
+    let chIdx = -1;
+    function paintNavSteps() {
+      const multi = chList.length > 1;
+      prevBtn.disabled = !(chIdx > 0);
+      nextBtn.disabled = !(chIdx >= 0 && chIdx < chList.length - 1);
+      prevBtn.style.opacity = prevBtn.disabled ? '.3' : '';
+      nextBtn.style.opacity = nextBtn.disabled ? '.3' : '';
+      navTitle.textContent = (opt.idx ? '第 ' + opt.idx + ' 章' : '章节')
+        + (multi && chIdx >= 0 ? ' · ' + (chIdx + 1) + '/' + chList.length : '');
+    }
+    async function loadChapterList() {
+      try {
+        const r = await api.get('/api/novel/' + nid + '/chapters');
+        if (!ed) return;
+        chList = (r.chapters || []).slice().sort(function (a, b) { return a.idx - b.idx; });
+        chIdx = -1;
+        for (let i = 0; i < chList.length; i++) { if (Number(chList[i].id) === Number(cid)) { chIdx = i; break; } }
+        paintNavSteps();
+      } catch (e) { /* 目录拿不到不影响写作 */ }
+    }
+    let closeJump = function () { };
+    function jumpList() {
+      if (!chList.length) { toast('还没有章节', 'warn'); return; }
+      const box = h('div');
+      const kw2 = h('input.inp', { type: 'search', placeholder: '输入章号或标题…', spellcheck: 'false' });
+      const lb = h('div.list');
+      function paint() {
+        const k = (kw2.value || '').trim().toLowerCase();
+        clear(lb);
+        const hits = k ? chList.filter(function (c) {
+          return String(c.idx).indexOf(k) >= 0 || String(c.title || '').toLowerCase().indexOf(k) >= 0;
+        }) : chList.slice(Math.max(0, chIdx - 25), chIdx + 26);
+        if (!hits.length) { lb.appendChild(h('div.small.muted.center', { text: '没找到' })); return; }
+        hits.forEach(function (c) {
+          lb.appendChild(li({
+            title: '第 ' + c.idx + ' 章　' + (c.title || ''),
+            sub: fmtNum(c.chars || 0) + ' 字',
+            right: Number(c.id) === Number(cid) ? chip('当前', 'ok') : null,
+            onTap: function () { closeJump(); gotoChapter(c); },
+          }));
+        });
+      }
+      kw2.addEventListener('input', paint);
+      box.appendChild(kw2);
+      box.appendChild(h('div.mt8', null, lb));
+      const sh = sheet({ title: '跳章 · 共 ' + chList.length + ' 章', height: '72vh',
+        build: function (b) { b.appendChild(box); paint(); } });
+      closeJump = function () { sh.close(); };
+    }
+    async function switchTo(c) {
+      if (!ed || !c) return;
+      if (ed.dirty) await save(false);
+      if (!ed) return;
+      teardown();
+      await openChapter(nid, c.id, { title: c.title, idx: c.idx, nid: nid });
+    }
+    function gotoChapter(c) { if (!c || Number(c.id) === Number(cid)) return; switchTo(c); }
+    function stepChapter(d) {
+      if (chIdx < 0) { toast('章节目录还没加载好，稍后再试', 'warn'); return; }
+      const t = chList[chIdx + d];
+      if (!t) { toast(d > 0 ? '已经是最后一章了' : '已经是第一章了', 'warn'); return; }
+      switchTo(t);
+    }
+
+    /* ---- 查找 / 替换 ---- */
+    const findInput = h('input.inp.ed-find-in', { type: 'text', placeholder: '查找…', spellcheck: 'false' });
+    const replInput = h('input.inp.ed-find-in', { type: 'text', placeholder: '替换为…（留空就是删掉）', spellcheck: 'false' });
+    const findCount = h('span.small.muted', { text: '0/0' });
+    const findBar = h('div.ed-find', { hidden: true },
+      h('div.row', { style: { gap: '8px' } }, findInput, findCount),
+      h('div.row.mt8', { style: { gap: '8px' } }, replInput),
+      h('div.btn-row.mt8', null,
+        A._btn('上一个', '', function () { findStep(-1); }),
+        A._btn('下一个', '', function () { findStep(1); }),
+        A._btn('替换', '', function () { replaceOne(); }),
+        A._btn('全部替换', 'primary', function () { replaceAll(); }),
+        A._btn('关闭', '', function () { toggleFind(false); })));
+    let findHits = [], findPos = -1;
+    findInput.addEventListener('input', function () { findPos = -1; findScan(); });
+    function findScan() {
+      findHits = findMatches(textArea.value, findInput.value);
+      if (findPos >= findHits.length) findPos = findHits.length - 1;
+      if (findPos < -1) findPos = -1;
+      findCount.textContent = (findHits.length && findPos >= 0 ? (findPos + 1) : 0) + '/' + findHits.length;
+      return findHits;
+    }
+    function scrollToChar(pos) {
+      const total = textArea.value.length || 1;
+      const ratio = Math.max(0, Math.min(1, pos / total));
+      textArea.scrollTop = Math.max(0, ratio * textArea.scrollHeight - textArea.clientHeight / 2);
+    }
+    function findStep(d) {
+      const hits = findScan();
+      if (!hits.length) { toast('没找到「' + findInput.value + '」', 'warn'); return; }
+      findPos = findPos < 0 ? (d > 0 ? 0 : hits.length - 1) : (findPos + d + hits.length) % hits.length;
+      findScan();
+      const t = hits[findPos];
+      textArea.focus();
+      textArea.setSelectionRange(t.start, t.end);
+      scrollToChar(t.start);
+    }
+    function replaceOne() {
+      const hits = findScan();
+      if (!hits.length) { toast('没找到「' + findInput.value + '」', 'warn'); return; }
+      if (findPos < 0) findPos = 0;
+      const t = hits[findPos];
+      const before = snapshot();
+      textArea.setRangeText(replInput.value, t.start, t.end, 'end');
+      recordBefore(before);
+      findPos = -1;
+      onEdit();
+      findScan();
+      haptic('light');
+    }
+    function replaceAll() {
+      const hits = findScan();
+      if (!hits.length) { toast('没找到「' + findInput.value + '」', 'warn'); return; }
+      const before = snapshot();
+      const parts = [];
+      let last = 0;
+      hits.forEach(function (t) { parts.push(textArea.value.slice(last, t.start), replInput.value); last = t.end; });
+      parts.push(textArea.value.slice(last));
+      textArea.value = parts.join('');
+      recordBefore(before);
+      findPos = -1;
+      onEdit();
+      findScan();
+      toast('已替换 ' + hits.length + ' 处', 'ok');
+      haptic('success');
+    }
+    function toggleFind(on) {
+      const want = on === undefined ? findBar.hidden : !!on;
+      findBar.hidden = !want;
+      if (want) {
+        const sel = textArea.value.slice(textArea.selectionStart, textArea.selectionEnd).trim();
+        if (sel && sel.length <= 40 && sel.indexOf('\n') < 0) findInput.value = sel;
+        findScan();
+        setTimeout(function () { findInput.focus(); findInput.select(); }, 40);
+      } else {
+        textArea.focus();
+      }
+      syncDockLift();
+    }
+
+    /* ---- 撤销 / 重做（只在本机记快照，不碰服务端） ---- */
+    ed.undo = []; ed.redo = []; ed.lastSnap = null;
+    function snapshot() { return { title: titleInput.value, content: textArea.value }; }
+    function markSnap() { ed.lastSnap = snapshot(); }
+    /* 历史里存的一律是「改之前」的状态：撤销才看得见变化 */
+    function _pushSnap(s) {
+      if (!s || !ed) return;
+      const last = ed.undo[ed.undo.length - 1];
+      if (last && last.title === s.title && last.content === s.content) return;
+      ed.undo.push({ title: s.title, content: s.content });
+      if (ed.undo.length > 60) ed.undo.shift();
+      ed.redo.length = 0;
+    }
+    /* 在「即将改正文」之前调用：把当前状态记进历史 */
+    function pushHistory() {
+      if (!ed) return;
+      markSnap();
+      _pushSnap(ed.lastSnap);
+    }
+    /* 已经改完才想起来记：把「改之前」的状态记进历史 */
+    function recordBefore(prev) { if (!ed) return; markSnap(); _pushSnap(prev); }
+    /* 把「刚才那一串输入」结算成一条历史（撤销前先结算，免得刚打完字还撤不动） */
+    function noteEdit() {
+      if (!ed || !ed.lastSnap) return;
+      const s = snapshot();
+      if (s.title === ed.lastSnap.title && s.content === ed.lastSnap.content) return;
+      const prev = ed.lastSnap;
+      ed.lastSnap = s;
+      _pushSnap(prev);
+    }
+    const historyTick = MZ.debounce(function () { noteEdit(); }, 900);
+    function applySnap(s) {
+      titleInput.value = s.title;
+      textArea.value = s.content;
+      if (!ed) return;
+      ed.lastSnap = { title: s.title, content: s.content };
+      ed.dirty = true;
+      paintMeta();
+      autoSave();
+    }
+    function undo() {
+      noteEdit();
+      if (!ed || !ed.undo.length) { toast('没有可撤销的修改了', 'warn'); return; }
+      const cur = snapshot();
+      applySnap(ed.undo.pop());
+      ed.redo.push(cur);
+      haptic('light');
+      toast('已撤销', 'ok');
+    }
+    function redo() {
+      if (!ed || !ed.redo.length) { toast('没有可重做的修改', 'warn'); return; }
+      const cur = snapshot();
+      applySnap(ed.redo.pop());
+      ed.undo.push(cur);
+      haptic('light');
+    }
+
+    /* ---- 沉浸模式：只留正文 ---- */
+    const exitBtn = h('button.ed-exit', { type: 'button', hidden: true },
+      icon('down', { size: 15 }), h('span', { text: '退出全屏' }));
+    function setImmersive(on) {
+      wrap.classList.toggle('ed-immersive', !!on);
+      exitBtn.hidden = !on;
+      immersiveBtn.classList.toggle('on', !!on);
+      syncDockLift();
+      if (on) { toast('沉浸模式：只留正文，右上角「退出全屏」回来', 'ok'); setTimeout(function () { textArea.focus(); }, 60); }
+    }
+    exitBtn.addEventListener('click', function () { haptic('light'); setImmersive(false); });
+
+    /* ---- 本章目标字数 ---- */
+    async function editTarget() {
+      const cur = (ed && ed.data && ed.data.target_words) || 2500;
+      const v = await modal({
+        title: '本章目标字数', text: '只影响字数达标度和进度显示，不会改正文。',
+        input: 'number', value: String(cur), okText: '保存',
+      });
+      if (v === null) return;
+      const n2 = Math.max(300, Math.min(20000, parseInt(v, 10) || 2500));
+      try {
+        await api.put('/api/novel/' + nid, { target_words: n2 });
+        if (ed) ed.data.target_words = n2;
+        paintMeta();
+        toast('目标字数已改成 ' + fmtNum(n2), 'ok');
+      } catch (e) { toast(e.message, 'bad'); }
+    }
+
+    /* ---- 导出本章 ---- */
+    async function exportChapter() {
+      const text = (titleInput.value ? titleInput.value + '\n\n' : '') + textArea.value;
+      if (!text.trim()) { toast('正文是空的', 'warn'); return; }
+      const idx = (ed && ed.data && ed.data.chapter && ed.data.chapter.idx) || '';
+      const name = '第' + idx + '章 ' + (titleInput.value || '') + '.txt';
+      try {
+        const r = await MZ.saveText(name, text);
+        toast(r && r.native ? '已存到「文件 → 墨舟 → 墨舟导出」' : '已导出 ' + name, 'ok');
+        haptic('success');
+      } catch (e) { toast('导出失败：' + ((e && e.message) || e), 'bad'); }
+    }
+
+    /* ---- AI 接着写 / 卡文了给三个走向 ---- */
+    function insertContinuation(text) {
+      if (!ed) return;
+      pushHistory();
+      textArea.value = textArea.value.replace(/\s+$/, '') + '\n\n' + text;
+      onEdit();
+      haptic('success');
+      toast('已插到章末，读一遍再点保存', 'ok');
+    }
+    function continueResult(text, words, hint) {
+      sheet({
+        title: '接着写好了 · ' + plainChars(text) + ' 字',
+        build: function (b, close) {
+          b.appendChild(h('div.card.tight.small', null, paraTextNode(text)));
+          b.appendChild(h('div.btn-row.mt12', null,
+            A._btn('插到章末', 'primary', function () { close(); insertContinuation(text); }),
+            A._btn('再写一段', '', function () { close(); guard(runContinue('write', words, hint)); }),
+            A._btn('复制', '', function () { clipboard(text); toast('已复制', 'ok'); }),
+            A._btn('丢掉', '', function () { close(); })));
+        },
+      });
+    }
+    function ideasSheet(ideas, hint) {
+      if (!ideas.length) { toast('没拿到走向建议，再试一次', 'warn'); return; }
+      sheet({
+        title: '卡文了？往这三个方向写',
+        build: function (b, close) {
+          b.appendChild(noteNode('点一条就按这个方向往下写；也可以只借方向，自己动笔。'));
+          ideas.forEach(function (t, i) {
+            b.appendChild(h('div.card.tight.mt12', null, h('div.small.pre-wrap', { text: (i + 1) + '. ' + t })));
+          });
+          b.appendChild(buttons(ideas.map(function (t, i) {
+            return { label: '按第 ' + (i + 1) + ' 条写', tone: i === 0 ? 'primary' : '', onTap: function () {
+              close();
+              guard(runContinue('write', 800, (hint ? hint + '；' : '') + '按这个方向写：' + t));
+            } };
+          })));
+        },
+      });
+    }
+    async function runContinue(mode, words, hint) {
+      const res = await runOp(mode === 'ideas' ? 'AI 想三个走向' : 'AI 接着写',
+        '/api/chapter/' + cid + '/continue',
+        { body: { mode: mode, words: words || 800, hint: hint || '' }, timeout: 900000, match: '接着写' });
+      if (!ed) return;
+      if (mode === 'ideas') { ideasSheet((res && res.ideas) || [], hint); return; }
+      const text = (res && (res.text || (res.result && res.result.text))) || '';
+      if (!text) { toast('模型没有返回内容', 'bad'); return; }
+      continueResult(text, words, hint);
+    }
+    function continueSheet() {
+      const s2 = sheet({ title: '接着写', height: 'auto' });
+      let words = 600;
+      const segs = h('div.seg');
+      [300, 600, 1000, 1500].forEach(function (wd) {
+        const b = h('button' + (wd === words ? '.on' : ''), { type: 'button', text: wd + ' 字' });
+        b.addEventListener('click', function () {
+          words = wd; haptic('light');
+          Array.prototype.forEach.call(segs.children, function (x) { x.classList.remove('on'); });
+          b.classList.add('on');
+        });
+        segs.appendChild(b);
+      });
+      const hint = h('input.inp', { type: 'text', placeholder: '想让它往哪写？（可留空）', spellcheck: 'false' });
+      s2.body.appendChild(h('div.small.muted.mb8', { text: 'AI 顺着本章最后一句往下写；写完先给你看，点「插到章末」才进正文。' }));
+      s2.body.appendChild(segs);
+      s2.body.appendChild(h('div.mt12', null, hint));
+      s2.body.appendChild(buttons([
+        { label: '卡文了，给我三个走向', onTap: function () { s2.close(); guard(runContinue('ideas', 0, hint.value)); } },
+        { label: '开始往下写', tone: 'primary', onTap: function () { s2.close(); guard(runContinue('write', words, hint.value)); } },
+      ]));
+    }
+
+    /* ---- 键盘快捷键（iPad 外接键盘 / 桌面浏览器） ---- */
+    function onKey(e) {
+      if (!ed || !(e.metaKey || e.ctrlKey)) return;
+      const k = String(e.key || '').toLowerCase();
+      if (k === 's') { e.preventDefault(); guard(save(true)); }
+      else if (k === 'f') { e.preventDefault(); toggleFind(true); }
+      else if (k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+      else if (k === 'y') { e.preventDefault(); redo(); }
+      else if (k === 'g') { e.preventDefault(); jumpList(); }
+      else if (k === 'e') { e.preventDefault(); guard(exportChapter()); }
+    }
+    window.addEventListener('keydown', onKey);
+    prevBtn.addEventListener('click', function () { haptic('light'); stepChapter(-1); });
+    nextBtn.addEventListener('click', function () { haptic('light'); stepChapter(1); });
+    navTitle.addEventListener('click', function () { haptic('light'); jumpList(); });
+    immersiveBtn.addEventListener('click', function () { haptic('light'); setImmersive(!wrap.classList.contains('ed-immersive')); });
 
     const titleInput = h('input.ed-title', { type: 'text', placeholder: '章节标题', value: opt.title || '' });
     const textArea = h('textarea.ed-text', { placeholder: '在这里写正文…（输入会自动保存）', spellcheck: 'false' });
@@ -397,6 +829,7 @@ window.MZEditor = (function () {
       return b;
     }
     tb('保存', 'primary', 'check', function () { save(true); });
+    tb('接着写', 'blue', 'spark', function () { continueSheet('write'); });
     tb('复制整章', '', 'copy', function () { copyChapter(); });
     tb('重生成', '', 'spark', function () { regen(); });
     tb('去 AI 化', '', 'refresh', function () { deai(); });
@@ -404,12 +837,14 @@ window.MZEditor = (function () {
     tb('检查', 'blue', 'shield', function () { openInspect(); });
     tb('更多', '', 'more', function () { moreActions(); });
 
-    wrap.appendChild(nav); wrap.appendChild(bodyBox); wrap.appendChild(selBar); wrap.appendChild(toolbar);
+    wrap.appendChild(nav); wrap.appendChild(findBar); wrap.appendChild(bodyBox);
+    wrap.appendChild(selBar); wrap.appendChild(toolbar); wrap.appendChild(exitBtn);
 
     /* 全局任务条是 body 级的 fixed 条，默认贴在标签栏上方；
        写作台没有标签栏，但底部有自己的工具条 + 选中条 —— 量出它们的高度，
        让任务条抬到上面去，别把工具条盖住。 */
     function syncDockLift() {
+      if (!ed) return;
       const tb = (toolbar.getBoundingClientRect().height || 0);
       const sb = selBar.hidden ? 0 : (selBar.getBoundingClientRect().height || 0);
       document.documentElement.style.setProperty('--dock-bottom', Math.round(tb + sb + 12) + 'px');
@@ -430,8 +865,11 @@ window.MZEditor = (function () {
         navTitle.textContent = '第 ' + (ch.idx || '') + ' 章';
         ed.dirty = false;
         ed.savedAt = '';
+        ed.undo = []; ed.redo = []; ed.lastSnap = null;
+        markSnap();
         ed.check.hit = d.hit_review || null;
         paintMeta();
+        loadChapterList();
         loadCachedChecks();
       } catch (e) {
         clear(bodyBox);
@@ -466,7 +904,11 @@ window.MZEditor = (function () {
       const target = d.target_words || (d.chapter && d.chapter.target_words) || 2500;
       clear(meta);
       meta.appendChild(chip(fmtNum(chars) + ' 字', chars >= target ? 'ok' : '', 'write'));
-      meta.appendChild(chip('目标 ' + fmtNum(target), '', 'target'));
+      const tchip = chip('目标 ' + fmtNum(target), chars >= target ? 'ok' : '', 'target');
+      tchip.style.cursor = 'pointer';
+      tchip.title = '点一下改本章目标字数';
+      tchip.addEventListener('click', function () { editTarget(); });
+      meta.appendChild(tchip);
       if (m.score !== undefined && m.score !== null) {
         meta.appendChild(chip('质检 ' + Math.round(m.score), m.score >= 75 ? 'ok' : (m.score >= 55 ? '' : 'bad'), 'shield'));
       }
@@ -488,6 +930,7 @@ window.MZEditor = (function () {
       if (!ed) return;
       ed.dirty = true;
       paintMeta();
+      historyTick();
       autoSave();
     }
     titleInput.addEventListener('input', onEdit);
@@ -572,6 +1015,7 @@ window.MZEditor = (function () {
 
     /* 一次「重写 + 复评」；返回 {range, after} */
     async function doRewrite(range, instruction) {
+      pushHistory();
       const res = await runOp('改写 ' + rangeLabel(range), '/api/chapter/' + cid + '/rewrite', {
         body: { start: range.start, end: range.end, instruction: instruction || '' },
         timeout: 900000,
@@ -642,6 +1086,7 @@ window.MZEditor = (function () {
 
     function insertHook(t) {
       if (!ed) return;
+      pushHistory();
       textArea.value = textArea.value.replace(/\s+$/, '') + '\n\n' + t;
       onEdit();
       haptic('success');
@@ -674,6 +1119,7 @@ window.MZEditor = (function () {
         : '重生成整章：会覆盖当前正文（原内容会存档，可回滚）。继续？',
         { okText: '继续', danger: true });
       if (!ok) return;
+      pushHistory();
       const res = await runOp('重生成整章', '/api/chapter/' + cid + '/regen', { match: '整章重生成' });
       toast((res && res.msg) || '重生成完成', 'ok');
       haptic('success');
@@ -682,6 +1128,7 @@ window.MZEditor = (function () {
     async function deai() {
       const ok = await confirm('去 AI 化：会把「像 AI 写的」段落重写一遍，原内容会存档可回滚。继续？', { okText: '继续' });
       if (!ok) return;
+      pushHistory();
       const res = await runOp('去 AI 化', '/api/chapter/' + cid + '/deai', { match: '去\\s*AI\\s*化' });
       toast((res && res.msg) || '去 AI 化完成', 'ok');
       haptic('success');
@@ -733,6 +1180,17 @@ window.MZEditor = (function () {
 
     function moreActions() {
       actions([
+        { label: '接着写（AI 往下写）', sub: '顺着章末接下去，先给你看再插进去', icon: 'spark', onPick: function () { continueSheet(); } },
+        { label: '写下一章（AI 补更）', sub: '这章差不多了，让 AI 接着往下开新章', icon: 'books', onPick: function () { guard(writeNext()); } },
+        { label: '卡文了？给我三个走向', sub: '不写正文，只给想法', icon: 'target', onPick: function () { guard(runContinue('ideas', 0, '')); } },
+        { label: '查找 / 替换', sub: '章内找字、批量替换（Ctrl/Cmd+F）', icon: 'menu', onPick: function () { toggleFind(); } },
+        { label: '撤销上一步', sub: '快捷键 Ctrl/Cmd+Z', icon: 'refresh', onPick: function () { undo(); } },
+        { label: '重做', sub: 'Ctrl/Cmd+Shift+Z', icon: 'refresh', onPick: function () { redo(); } },
+        { label: '沉浸模式', sub: '隐藏所有边栏，只留正文', icon: 'eye', onPick: function () { setImmersive(!wrap.classList.contains('ed-immersive')); } },
+        { label: '正文字号与行距', sub: '嫌字小、行挤，在这儿调', icon: 'menu', onPick: function () { fontSheet(); } },
+        { label: '导出本章 txt', sub: '存到「文件」或发给自己', icon: 'download', onPick: function () { guard(exportChapter()); } },
+        { label: '章节目录 / 跳章', sub: '上一章、下一章也在顶部', icon: 'books', onPick: function () { jumpList(); } },
+        { label: '改本章目标字数', sub: '点顶部的「目标」chip 也能改', icon: 'target', onPick: function () { editTarget(); } },
         { label: '复制整章', sub: '含标题，直接粘到番茄后台', icon: 'copy', onPick: function () { copyChapter(); } },
         { label: '按我说的改选中段落', sub: '选中正文里的一段再点', icon: 'edit', onPick: function () { rewriteHint(null); } },
         { label: '合规预检', sub: '本机词表，秒出', icon: 'shield', onPick: function () { openInspect('compliance'); } },
@@ -743,6 +1201,15 @@ window.MZEditor = (function () {
         { label: '版本历史', icon: 'history', onPick: function () { openInspect('versions'); } },
         { label: '删除本章', danger: true, icon: 'trash', onPick: function () { delChapter(); } },
       ], { title: '第 ' + ((ed.data && ed.data.chapter && ed.data.chapter.idx) || '') + ' 章' });
+    }
+
+    /* 从写作台直接开下一章：先把手改存好，再走「补更」那套后台流程 */
+    async function writeNext() {
+      if (!ed) return;
+      if (ed.dirty) await save(false);
+      const d = await api.get('/api/novel/' + nid);
+      if (!d || !d.novel) { toast('拿不到这本书的信息', 'bad'); return; }
+      A.askUpdate(d.novel);
     }
 
     async function delChapter() {
@@ -899,6 +1366,20 @@ window.MZEditor = (function () {
         setTimeout(function () { mask.addEventListener('click', onMask); }, 0);
       });
     }
+    /* 把写作台从页面上拆下来（不重绘底下的页面）。
+       切章、关闭都走它，不会因为拆得不干净而漏事件监听。 */
+    function teardown() {
+      if (!ed) return null;
+      const w = ed.wrap;
+      (ed.timers || []).forEach(function (t) { clearInterval(t); });
+      window.removeEventListener('keydown', onKey);
+      inspector = null;
+      ed = null;
+      document.body.style.overflow = '';
+      document.documentElement.style.removeProperty('--dock-bottom');
+      if (w && w.parentNode) w.parentNode.removeChild(w);
+      return w;
+    }
     async function closeEditor(force) {
       if (!force && ed && ed.dirty) {
         const pick = await pickCloseAction();
@@ -908,13 +1389,7 @@ window.MZEditor = (function () {
         await save(false);
       }
       if (!ed) return;
-      const w = ed.wrap;
-      (ed.timers || []).forEach(function (t) { clearInterval(t); });
-      inspector = null;
-      ed = null;
-      document.body.style.overflow = '';
-      document.documentElement.style.removeProperty('--dock-bottom');
-      if (w && w.parentNode) w.parentNode.removeChild(w);
+      teardown();
       A.render();
     }
 
