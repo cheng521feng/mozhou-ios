@@ -522,7 +522,7 @@ html.light .btn.primary { color: #fff; }
 .ed-title::placeholder { color: var(--dim); }
 .ed-text {
   flex: 1 1 auto; width: 100%; min-height: 0; border: 0; outline: none; resize: none; background: transparent;
-  padding: 4px 17px 24px; font-size: 17px; line-height: 1.85; letter-spacing: .1px;
+  padding: 4px 17px 24px; font-size: var(--ed-fs, 17px); line-height: var(--ed-lh, 1.85); letter-spacing: .1px;
   font-family: var(--sans);
 }
 .ed-text::placeholder { color: var(--dim); }
@@ -697,7 +697,7 @@ html.light .pillbar button.on { color: #fff; }
   padding: 15px 18px 7px; font-size: 22px;
   border-bottom: 1px solid var(--line-soft);
 }
-.ed-text { padding: 14px 18px 22px; font-size: 17.5px; line-height: 1.95; }
+.ed-text { padding: 14px 18px 22px; font-size: var(--ed-fs, 17.5px); line-height: var(--ed-lh, 1.95); }
 .ed-text::selection { background: color-mix(in srgb, var(--accent) 34%, transparent); }
 
 /* 选中操作条：一选中正文就浮出来，手指够得着 */
@@ -995,3 +995,53 @@ body.wc-open #mzAcctBtn { opacity: 0 !important; pointer-events: none !important
 /* AI 方案里的几十条章纲：给个高度上限，里面自己滚，别把「创建这本书」顶到看不见的地方 */
 .plan-scroll { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; border-radius: var(--r-card); }
 .plan-scroll .list { border-radius: var(--r-card); }
+
+
+/* ============================== 写作台 v7：跳章 / 沉浸 / 查找替换 ============================== */
+/* 顶部：返回 + 上一章 ‹ + 标题（点了跳章）+ 下一章 › + 沉浸 + 检查 */
+.ed-nav .nb-row { gap: 3px; }
+button.ed-step {
+  flex: 0 0 auto; width: 30px; height: 34px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--accent); font-size: 22px; line-height: 1; border-radius: 10px;
+}
+button.ed-step:active { background: var(--panel2); }
+button.ed-step:disabled { opacity: .3; }
+button.ed-titletap {
+  flex: 1 1 auto; min-width: 0; padding: 4px 6px;
+  border: 0; background: none; color: inherit; font: inherit;
+  font-size: 15px; font-weight: 640; letter-spacing: .2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center;
+}
+button.ed-titletap:active { opacity: .7; }
+button.ed-nb-sm { min-width: 36px; padding: 0 8px; }
+button.ed-nb-sm.on { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* 查找 / 替换条 */
+.ed-find {
+  flex: 0 0 auto; padding: 10px 13px calc(10px + 2px);
+  background: var(--nav-bg); border-bottom: 1px solid var(--line-soft);
+  animation: selIn .2s var(--spring) both;
+}
+.ed-find[hidden] { display: none; }
+.ed-find .inp { padding: 7px 11px; font-size: 14px; }
+.ed-find-in { flex: 1 1 auto; min-width: 0; }
+.ed-find .btn { flex: 0 0 auto; }
+.ed-find .btn-row { gap: 6px; }
+
+/* 沉浸模式：只留正文 */
+.ed-wrap.ed-immersive .ed-nav,
+.ed-wrap.ed-immersive .ed-toolbar,
+.ed-wrap.ed-immersive .sel-bar { display: none; }
+.ed-wrap.ed-immersive .ed-title { padding-top: calc(var(--safe-t) + 12px); }
+.ed-wrap.ed-immersive .ed-body { max-width: 780px; margin: 0 auto; width: 100%; }
+.ed-exit {
+  position: absolute; right: 14px; top: calc(var(--safe-t) + 10px); z-index: 45;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+  color: var(--text); background: var(--panel); border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .3);
+  transition: transform .16s var(--spring), opacity .2s;
+}
+.ed-exit[hidden] { display: none; }
+.ed-exit:active { transform: scale(.94); }
