@@ -361,10 +361,11 @@ window.MZBook = (function () {
     const bs = busySheet('AI 正在构思大纲…');
     let r = null;
     try {
-      const topic = [n.title, n.channel, n.category].filter(Boolean).join(' ') +
-        ((n.intro || '').trim() ? '｜已有简介：' + String(n.intro).slice(0, 120) : '');
+      /* 书名单独传；这本书已有的简介当成「方向」传 —— 这样模型才不会抛开这本书自己另起一个题 */
       r = await api.post('/api/idea', {
-        topic: topic, channel: n.channel || '', category: n.category || '都市', count: 20, create: 0,
+        title: n.title || '', idea: String(n.intro || '').trim().slice(0, 200),
+        topic: [n.channel, n.category].filter(Boolean).join(' '),
+        channel: n.channel || '', category: n.category || '都市', count: 20, create: 0,
       }, { timeout: 300000 });
     } catch (e) { bs.close(); toast(e.message, 'bad'); return; }
     bs.close();
@@ -380,12 +381,19 @@ window.MZBook = (function () {
       title: '《' + (n.title || '') + '》大纲方案',
       build: function (b, close) {
         b.appendChild(h('div.fld-hint', { text: '这是 AI 给出的方案。点下面的「采纳」才会写进这本书的设定，现在什么都不改。' }));
+        if (r.warn) b.appendChild(h('div.card.tight.small', { text: '提示：' + r.warn }));
         if (r.tags && r.tags.length) {
           b.appendChild(h('div.bk-meta.mt12', null, r.tags.map(function (t) { return chip(String(t)); })));
         }
+        if (r.direction_check) {
+          b.appendChild(h('div.card.tight.small.mt12', null,
+            h('b', { text: '贴合方向：' }), h('span', { text: r.direction_check })));
+        }
         b.appendChild(h('div.section-title', { text: '简介' }));
         b.appendChild(h('div.card.tight.small.pre-wrap', { text: r.intro || '（这次没给简介）' }));
-        b.appendChild(h('div.section-title', { text: '三幕大纲' }));
+        b.appendChild(h('div.section-title', null,
+          h('span', { text: '三幕大纲' }),
+          h('span.sp', { text: (r.outline || '').length + ' 字' })));
         b.appendChild(h('div.card.tight.small.pre-wrap', { text: r.outline || '（这次没给大纲）' }));
         if (r.characters) {
           b.appendChild(h('div.section-title', { text: '人物' }));
@@ -396,9 +404,9 @@ window.MZBook = (function () {
             h('span', { text: '前 ' + chs.length + ' 章章纲' })));
           const l = h('div.list');
           chs.forEach(function (c, i) {
-            l.appendChild(li({ title: String(i + 1) + '. ' + (c.title || ''), sub: c.brief || '' }));
+            l.appendChild(li({ title: A.chapTitle(c, i), sub: c.brief || '' }));
           });
-          b.appendChild(l);
+          b.appendChild(h('div.plan-scroll', null, l));
         }
         b.appendChild(buttons([
           { label: '采纳（大纲 + 人物 + 简介）', tone: 'primary', onTap: async function () {
@@ -414,6 +422,7 @@ window.MZBook = (function () {
               A.render();
             } catch (e) { bs.close(); toast(e.message, 'bad'); }
           } },
+          { label: '换一份', onTap: function () { close(); aiOutline(n, { silent: true }); } },
           { label: '先不用', onTap: function () { close(); } },
         ]));
       },
@@ -655,7 +664,11 @@ window.MZBook = (function () {
     if (!n) return;
     actions([
       { label: '编辑资料', icon: 'edit', onPick: function () { editMeta(n); } },
-      { label: 'AI 根据书名写大纲', icon: 'spark', onPick: function () { aiOutline(n); } },
+      { label: n.pinned ? '取消置顶' : '置顶到书架最前', icon: 'star',
+        onPick: function () { A.setPinned([n.id], !n.pinned); } },
+      { label: 'AI 根据书名写大纲', icon: 'spark',
+        sub: n.has_outline ? '会覆盖现有大纲，先给你看再采纳' : '这本书还没有大纲',
+        onPick: function () { aiOutline(n); } },
       { label: '无人值守续写', icon: 'play', onPick: function () { unattended(n); } },
       { label: '导出 txt', icon: 'download', onPick: function () { A.exportNovel(n); } },
       { label: '删除作品', icon: 'trash', danger: true, sub: '进回收站，可恢复', onPick: function () { remove(n); } },
