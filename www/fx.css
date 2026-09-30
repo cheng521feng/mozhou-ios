@@ -223,9 +223,7 @@ html.light .ripple { background: radial-gradient(circle, rgba(20,40,70,.2), rgba
 /* ============================== 标签 chip ============================== */
 .chip { animation: mzPop .34s var(--spring) both; }
 .chip svg { width: 13px; height: 13px; flex: 0 0 auto; opacity: .95; }
-.chip.ok   { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 34%, transparent); }
-.chip.warn { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 34%, transparent); }
-.chip.bad  { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 34%, transparent); }
+/* v6：标签不再画一圈内描边（那是上一版的玻璃感），交给底色说话 */
 
 /* ============================== 下拉刷新 ============================== */
 .pull {
@@ -240,12 +238,12 @@ html.light .ripple { background: radial-gradient(circle, rgba(20,40,70,.2), rgba
 
 /* ============================== 遮罩 / 抽屉 / 弹窗 ============================== */
 .mask {
-  position: fixed; inset: 0; z-index: 50; display: flex;
+  position: fixed; inset: 0; z-index: 150; display: flex;
   align-items: flex-end; justify-content: center;
   background: var(--scrim); opacity: 0; transition: opacity .3s ease;
   -webkit-backdrop-filter: blur(0px); backdrop-filter: blur(0px);
 }
-.mask.on { opacity: 1; -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%); }
+.mask.on { opacity: 1; -webkit-backdrop-filter: blur(9px) saturate(130%); backdrop-filter: blur(9px) saturate(130%); }
 .mask.hidden { display: none; }
 
 .sheet, .actionsheet, .modalbox { will-change: transform, opacity; }
