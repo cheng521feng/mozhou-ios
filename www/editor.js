@@ -1401,8 +1401,17 @@ window.MZEditor = (function () {
       if (ed && ed.dirty) { e.preventDefault(); e.returnValue = ''; }
     });
 
-    textArea.focus();
     await load();
+    /* 注意顺序：必须等正文装进去了再 focus。
+       先 focus 再 load 的话，输入框被填上内容后光标会落到末尾，
+       浏览器就会把整个页面/输入框滚到最下面 —— 看着就像「点开章节卡在下面」。
+       现在：先装正文，再把光标放开头、正文滚到最上。 */
+    if (!ed) return;
+    try {
+      textArea.focus();
+      textArea.setSelectionRange(0, 0);
+      textArea.scrollTop = 0;
+    } catch (e) { /* 忽略 */ }
   }
 
   return { openChapter: openChapter };
