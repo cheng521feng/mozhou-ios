@@ -15,10 +15,13 @@ window.MZApp = (function () {
           fmtNum, fmtWords, fmtDur, fmtDate, timeAgo, debounce, sleep, emptyBox, loadingBox, errBox,
           attachPull, icon, brand, ring, bar, chip, countNode, countUp, skeleton, reduceMotion, hold } = MZ;
 
-  const TABS = ['overview', 'books', 'write', 'jobs', 'me'];
-  const TAB_LABEL = { overview: '总览', books: '书架', write: '写作', jobs: '任务', me: '我的' };
+  /* 四个标签：书架就是首页（跟阅读器一样的思路 —— 打开就是书）
+     老代码里 switchTab('overview') 的地方统一落到书架，不报错。 */
+  const TABS = ['books', 'write', 'jobs', 'me'];
+  const LEGACY_TAB = { overview: 'books', shelf: 'books', home: 'books', books: 'books', more: 'me', mine: 'me' };
+  const TAB_LABEL = { books: '书架', write: '写作', jobs: '任务', me: '我的' };
   const state = {
-    tab: 'overview',
+    tab: 'books',
     liveJobs: [],
     stack: [],
     hero: null,
@@ -483,6 +486,7 @@ window.MZApp = (function () {
     if (s.after) s.after(body);
   }
   function go(tab) {
+    if (LEGACY_TAB[tab]) tab = LEGACY_TAB[tab];
     if (TABS.indexOf(tab) < 0) return;
     state.tab = tab;
     state.stack = [];
@@ -705,17 +709,19 @@ window.MZApp = (function () {
       action: { label: '新建', onTap: function () { newNovelMenu(); } },
       async mount() {
         const d = await ensureHero();
-        const out = h('div.pad');
+        const out = h('div');
         if (!state.novels.length) {
           booksSel.mode = false; booksSel.ids = {};
-          out.appendChild(emptyBox('books', '书架是空的',
-            '点右上角「新建」：可以自己取个书名让 AI 写大纲，也可以把整本书粘进来导入'));
+          const em = emptyBox('books', '书架是空的',
+            '点右上角「新建」：可以自己取个书名让 AI 写大纲，也可以把整本书粘进来导入');
+          em.classList.add('pad');
+          out.appendChild(em);
           return out;
         }
         const st = d.stats || {};
         const total = state.novels.length;
         const stat = h('span.bh-stat');
-        const host = h('div');
+        const host = h('div.books-grid');
         const tip = h('div.footnote');
 
         function paintStat(shown) {
@@ -776,18 +782,42 @@ window.MZApp = (function () {
         }
         head.appendChild(tools);
 
+        if (!booksSel.mode) out.appendChild(todayStrip(d));
         out.appendChild(head);
         out.appendChild(booksTools(paint));
         out.appendChild(host);
         tip.textContent = booksSel.mode
           ? '选好之后点上面的「置顶 / 删除」；删除会先放进「我的 → 回收站」，随时能恢复。'
-          : '长按一本书，或点它右边的「⋯」，可以直接编辑资料、写大纲、置顶、删书，不用先进作品页。';
+          : '长按封面，或点封面右上角的「⋯」，可以直接编辑资料、写大纲、置顶、删书。';
         out.appendChild(tip);
         paint();
         return out;
       },
     };
   };
+
+  /* 书架最上面那条：今天还差几章 + 一键补更。
+     以前在「总览」页，现在书架就是首页，这条直接摆在书名上面。 */
+  function todayStrip(d) {
+    const st = (d && d.stats) || {};
+    const done = Number(st.today_chapters) || 0;
+    const target = Number(st.today_target) || 0;
+    const todos = state.novels.filter(function (n) { return n.enabled !== false && planNeed(n) > 0; });
+    const box = h('div.today-strip');
+    const main = h('div.ts-main');
+    main.appendChild(h('div.ts-num', null,
+      h('span', { text: String(done) }),
+      h('small', { text: target ? '/ ' + target + ' 章' : '章 · 今天' })));
+    main.appendChild(h('div.ts-sub', { text: target
+      ? (done >= target ? '今天的量已经达标，想写就接着写' : '还差 ' + (target - done) + ' 章达标' + (todos.length ? ' · ' + todos.length + ' 本待补' : ''))
+      : (state.novels.length ? '共 ' + state.novels.length + ' 本作品 · ' + (st.chapters || 0) + ' 章' : '还没有作品') }));
+    main.appendChild(h('div.ts-bar', null, barOf(target ? (done / target) * 100 : 0, (target && done >= target) ? 'ok' : '')));
+    box.appendChild(main);
+    const b = h('button.bh-btn.primary', { type: 'button', text: '补更' });
+    b.addEventListener('click', function () { haptic('light'); runDaily(); });
+    box.appendChild(b);
+    return box;
+  }
 
   /* 搜索 / 排序 / 筛选：只重画书卡，不整体 render()，否则搜索框会失焦、键盘会掉 */
   function booksTools(repaint) {
@@ -879,12 +909,11 @@ window.MZApp = (function () {
         h('div.bk-cat', { text: [n.category, n.author].filter(Boolean).join(' · ') || '未分类' })),
       running ? h('span.live-dot') : (n.busy ? chip('队列中', 'warn') : null)));
     main.appendChild(h('div.bk-meta', null,
-      chip((n.chapter_count || 0) + ' 章', '', 'books'),
-      chip(fmtNum(n.total_chars || 0) + ' 字', '', 'file'),
-      (n.avg_score !== undefined && n.avg_score !== null) ? chip('均分 ' + Math.round(n.avg_score), (n.avg_score >= 75 ? 'ok' : ''), 'target') : null,
-      n.weak_count ? chip(n.weak_count + ' 弱章', 'amber', 'bolt') : null,
-      hasOutline(n) ? null : chip('缺大纲', 'warn'),
-      n.pinned ? chip('置顶', 'blue') : null));
+      chip((n.chapter_count || 0) + ' 章'),
+      chip(fmtNum(n.total_chars || 0) + ' 字'),
+      n.pinned ? chip('置顶', 'blue') : null,
+      n.weak_count ? chip(n.weak_count + ' 弱章', 'warn') : null,
+      hasOutline(n) ? null : chip('缺大纲', 'warn')));
     main.appendChild(h('div.bk-foot', null,
       barOf(daily ? (made / daily) * 100 : 0, need ? 'warn' : 'ok'),
       h('span.tiny.muted.num', { text: '今日 ' + made + '/' + daily })));
