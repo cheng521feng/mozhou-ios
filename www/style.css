@@ -1090,3 +1090,9 @@ body.ed-immersive .main { padding-bottom: calc(20px + var(--safe-b)); }
 .ur-b { display: flex; align-items: baseline; gap: 8px; }
 .wc-open { }
 .welcome.wc-open { opacity: 1; visibility: visible; }
+
+/* ============================== 兜底：网关的旧版账号胶囊 ============================== */
+/* 网关有时会往 HTML 里塞一个固定定位的右上角账号胶囊（#mzAcctBtn）。v6 已经有自己的
+   「我的」页（资料 / 改密码 / 退出登录），那个胶囊会正好压在新的导航操作按钮上，
+   这里直接兜底隐藏；同时它带 backdrop-filter，去掉也省一层模糊。 */
+#mzAcctBtn { display: none !important; }
