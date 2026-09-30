@@ -2097,11 +2097,18 @@ window.MZApp = (function () {
       clear(el);
       el.appendChild(icon(el.dataset.ico, { size: 22 }));
     });
+    /* 登录页和启动页直接放 App 图标本体（跟桌面图标、启动图同一个标），
+       拿不到图再退回矢量品牌标。 */
     ['#loginLogo', '#splashLogo'].forEach(function (sel) {
       const el = $(sel);
       if (!el) return;
       clear(el);
-      el.appendChild(brand(38));
+      const img = document.createElement('img');
+      img.alt = '墨舟';
+      img.decoding = 'async';
+      img.addEventListener('error', function () { clear(el); el.appendChild(brand(46)); }, { once: true });
+      img.src = 'icons/icon-192.png';
+      el.appendChild(img);
     });
   }
   function pollLive(delay) {
