@@ -3,23 +3,36 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<meta name="color-scheme" content="dark light" />
-<meta name="theme-color" content="#0a0e15" />
+<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content="#f2f1ee" />
 <title>墨舟创作工坊</title>
 <style>
   html,body{height:100%;margin:0}
-  body{display:flex;align-items:center;justify-content:center;background:#0a0e15;color:#93a2b8;
+  body{display:flex;align-items:center;justify-content:center;
+       background:#f2f1ee;color:#8a8a90;
        font:15px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",system-ui,sans-serif}
+  html:not(.light) body{background:#0c0d0f;color:#8e9196}
   .b{display:flex;flex-direction:column;align-items:center;gap:12px}
-  .s{width:24px;height:24px;border-radius:999px;border:2.4px solid rgba(62,211,156,.28);border-top-color:#3ed39c;
-     animation:spin .8s linear infinite}
+  .s{width:24px;height:24px;border-radius:999px;border:2.4px solid rgba(15,165,124,.25);
+     border-top-color:#0fa57c;animation:spin .8s linear infinite}
+  html:not(.light) .s{border-color:rgba(62,211,156,.28);border-top-color:#3ed39c}
   @keyframes spin{to{transform:rotate(360deg)}}
 </style>
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem('mz_theme');
+    var light = (t === 'light') || ((t !== 'dark') && window.matchMedia
+      && window.matchMedia('(prefers-color-scheme: light)').matches);
+    if (light) document.documentElement.classList.add('light');
+  } catch (e) { /* 忽略 */ }
+})();
+</script>
 </head>
 <body>
 <div class="b"><div class="s"></div><div>正在打开墨舟…</div></div>
 <script>
-  /* v5：登录页并入主界面（main.html），这里只做一次跳转，
+  /* v6：登录页并入主界面（main.html），这里只做一次跳转，
      老的 /m/index.html 书签、以及接口 401 后回退登录页的逻辑都还能用。 */
   location.replace('main.html' + (location.search || ''));
 </script>
