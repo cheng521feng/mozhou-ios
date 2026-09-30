@@ -788,7 +788,7 @@ window.MZApp = (function () {
         out.appendChild(host);
         tip.textContent = booksSel.mode
           ? '选好之后点上面的「置顶 / 删除」；删除会先放进「我的 → 回收站」，随时能恢复。'
-          : '长按封面，或点封面右上角的「⋯」，可以直接编辑资料、写大纲、置顶、删书。';
+          : '点封面直接进这本书；长按封面或点右上角「⋯」，可以编辑资料、写大纲、置顶、删书。';
         out.appendChild(tip);
         paint();
         return out;
@@ -870,11 +870,13 @@ window.MZApp = (function () {
     ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(function (ev) {
       el.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true });
     });
+    /* 点封面 = 点这张卡片：直接进这本书（以前点封面弹的是封面菜单，很反直觉）。
+       封面菜单挪到「长按封面」和封面右上角「⋯」里。 */
     el.addEventListener('click', function (e) {
       e.stopPropagation();
       if (hh.swallow()) return;
       haptic('light');
-      if (window.MZBook && window.MZBook.coverSheet) window.MZBook.coverSheet(n);
+      openBook(n.id);
     });
   }
 
@@ -887,7 +889,7 @@ window.MZApp = (function () {
     const el = h('div.book' + (running ? '.running' : '') + (picked ? '.picked' : ''));
     let cv;
     if (n.cover_url) {
-      cv = h('img.cover', { src: MZ.img(n.cover_url), alt: '', decoding: 'async',
+      cv = h('img.cover', { src: MZ.img(n.cover_url), alt: '', decoding: 'async', loading: 'lazy',
         onerror: function (e) {
           const im = e && e.currentTarget;
           if (im && im.parentNode) {
