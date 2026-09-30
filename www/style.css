@@ -95,7 +95,7 @@ a { color: var(--accent); text-decoration: none; }
   --sh-1: 0 1px 2px rgba(0, 0, 0, .04);
   --sh-2: 0 10px 30px -18px rgba(0, 0, 0, .22);
   --sh-3: 0 24px 60px -30px rgba(0, 0, 0, .3);
-  --sh-cover: 0 2px 6px rgba(0, 0, 0, .10), 0 12px 28px -18px rgba(0, 0, 0, .35);
+  --sh-cover: 0 6px 18px -10px rgba(0, 0, 0, .38);
   --hl: none;
 
   --safe-t: env(safe-area-inset-top, 0px);
@@ -151,7 +151,7 @@ html:not(.light) {
   --sh-1: 0 1px 2px rgba(0, 0, 0, .5);
   --sh-2: 0 12px 34px -20px rgba(0, 0, 0, .9);
   --sh-3: 0 26px 60px -30px rgba(0, 0, 0, .95);
-  --sh-cover: 0 2px 6px rgba(0, 0, 0, .55), 0 14px 30px -18px rgba(0, 0, 0, .8);
+  --sh-cover: 0 6px 18px -10px rgba(0, 0, 0, .9);
   --hl: none;
   color-scheme: dark;
 }
@@ -221,8 +221,8 @@ pre { padding: 10px 12px; overflow: auto; line-height: 1.55; }
   position: sticky; top: 0; z-index: 40;
   padding-top: var(--safe-t);
   background: var(--nav-bg);
-  -webkit-backdrop-filter: saturate(180%) blur(18px);
-  backdrop-filter: saturate(180%) blur(18px);
+  -webkit-backdrop-filter: saturate(160%) blur(13px);
+  backdrop-filter: saturate(160%) blur(13px);
   border-bottom: 1px solid transparent;
   transition: border-color .2s ease;
 }
@@ -298,8 +298,8 @@ pre { padding: 10px 12px; overflow: auto; line-height: 1.55; }
   padding-bottom: var(--safe-b);
   display: flex; align-items: stretch;
   background: var(--tab-bg);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  backdrop-filter: saturate(160%) blur(16px);
   border-top: 1px solid var(--line-soft);
 }
 .tab {
@@ -653,9 +653,7 @@ button.chip.pick:active { transform: scale(.94); }
   position: sticky; top: 0; z-index: 12;
   display: flex; align-items: flex-end; gap: 12px;
   padding: 10px 16px 10px;
-  background: var(--nav-bg);
-  -webkit-backdrop-filter: saturate(180%) blur(18px);
-  backdrop-filter: saturate(180%) blur(18px);
+  background: var(--bg);
   border-bottom: 1px solid var(--line-soft);
 }
 .books-head .bh-stat { flex: 1 1 auto; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
@@ -711,6 +709,8 @@ button.chip.pick:active { transform: scale(.94); }
   object-fit: cover; background: var(--panel3);
   box-shadow: var(--sh-cover);
   display: block;
+  content-visibility: auto;
+  contain-intrinsic-size: 120px 180px;
 }
 div.cover {
   display: grid; place-items: center;
@@ -743,12 +743,12 @@ div.cover {
   position: absolute; top: 6px; right: 6px; z-index: 3;
   width: 26px; height: 26px; border-radius: 50%;
   display: grid; place-items: center;
-  color: #fff; background: rgba(12, 12, 14, .38);
-  -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px);
-  box-shadow: 0 1px 5px rgba(0, 0, 0, .22);
+  color: #fff; background: rgba(12, 12, 14, .46);
+  border: 1px solid rgba(255, 255, 255, .22);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .2);
 }
 .book .bk-dot svg { width: 15px; height: 15px; }
-.book .bk-dot:active { background: rgba(12, 12, 14, .58); }
+.book .bk-dot:active { background: rgba(12, 12, 14, .6); }
 .book .bk-pick {
   position: absolute; top: 7px; left: 7px; z-index: 2;
   width: 22px; height: 22px; border-radius: 50%;
@@ -772,8 +772,7 @@ div.cover {
   position: sticky; top: 0; z-index: 14;
   display: flex; align-items: center; gap: 12px;
   padding: 10px 16px;
-  background: var(--nav-bg);
-  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  background: var(--bg);
   border-bottom: 1px solid var(--line-soft);
 }
 .sel-info { flex: 1 1 auto; font-size: 14px; font-weight: 600; }
