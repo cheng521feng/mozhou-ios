@@ -567,15 +567,15 @@ window.MZ = (function () {
     return svg;
   }
 
-  /* 品牌标：一叶舟 + 一道水痕 */
+  /* 品牌标：一叶舟（实心帆 + 凹形舟身），跟 App 图标同一个标 */
   function brand(size) {
-    const svg = icon('dot', { size: size || 44, view: '0 0 48 48', w: 2.1 });
+    const svg = icon('dot', { size: size || 44, view: '0 0 48 48' });
     try {
+      svg.setAttribute('fill', 'currentColor');
+      svg.setAttribute('stroke', 'none');
       svg.innerHTML =
-        '<path d="M9 29.4h30c0 5.4-6.7 9.6-15 9.6S9 34.8 9 29.4z"/>' +
-        '<path d="M24 6.6v22.8"/>' +
-        '<path d="M24 10.4c5.6 3.4 8.4 8 8.4 12.6H24z"/>' +
-        '<path d="M4.4 43c3.2-2.2 6.4-2.2 9.6 0s6.4 2.2 9.6 0 6.4-2.2 9.6 0 6.4 2.2 9.6 0"/>';
+        '<path d="M18.31 11.47Q27.78 23.97 34.09 31H18.31Z"/>'
+        + '<path d="M9 31h30a21.75 21.75 0 0 1-30 0Z"/>';
     } catch (e) { /* 忽略 */ }
     return svg;
   }
