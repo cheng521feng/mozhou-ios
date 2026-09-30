@@ -50,9 +50,16 @@ window.MZ = (function () {
        3) 纯 IP 的 80 端口（老兜底；纯 IP 不会被查备案，实测也能通）。
     启动时全部并行探一次（探不通就 2.6 秒超时，互不拖累），把第一个能用的
     记在本地，之后一直用它；真发请求时要是又断了，会自动重探、换一个入口重试一次。 */
+  const CLOUDS_RAW = ['https://47-101-72-16.sslip.io', 'http://47.101.72.16:8900', 'http://47.101.72.16'];
+  /* 页面自己是 https 的时候，浏览器会把 http:// 的请求当「混合内容」直接拦掉
+     （控制台一堆 Mixed Content，探测必然失败）。所以 https 页面只留 https 入口；
+      ipa 里页面跑在 capacitor://localhost，不受这条限制，http 兜底入口照旧保留。 */
+  const CLOUDS_ALL = (location.protocol === 'https:')
+    ? CLOUDS_RAW.filter(function (b) { return b.indexOf('https:') === 0; })
+    : CLOUDS_RAW;
   const CLOUDS = (window.MZ_CLOUD !== undefined && window.MZ_CLOUD !== null)
     ? (String(window.MZ_CLOUD) ? [String(window.MZ_CLOUD)] : [])
-    : ['https://47-101-72-16.sslip.io', 'http://47.101.72.16:8900', 'http://47.101.72.16'];
+    : CLOUDS_ALL;
   const CLOUD_KEY = 'mz_cloud';
   let CLOUD = '';
   try { CLOUD = localStorage.getItem(CLOUD_KEY) || ''; } catch (e) { CLOUD = ''; }
