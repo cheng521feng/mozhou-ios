@@ -7,9 +7,9 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="墨舟" />
-<meta name="theme-color" content="#0a0e15" />
-<meta name="color-scheme" content="dark light" />
-<!-- 首屏外观：在样式表生效前就把 html.light 打上，冷启动不会先闪一下白底 -->
+<meta name="theme-color" content="#f2f1ee" />
+<meta name="color-scheme" content="light dark" />
+<!-- 首屏外观：在样式表生效前就把 html.light 打上，冷启动不会先闪一下 -->
 <script>
 (function () {
   try {
@@ -18,7 +18,9 @@
       && window.matchMedia('(prefers-color-scheme: light)').matches);
     if (light) document.documentElement.classList.add('light');
     var m = document.querySelector('meta[name=theme-color]');
-    if (m) m.setAttribute('content', light ? '#eef2f8' : '#0a0e15');
+    if (m) m.setAttribute('content', light ? '#f2f1ee' : '#0c0d0f');
+    var s = document.querySelector('meta[name=color-scheme]');
+    if (s) s.setAttribute('content', light ? 'light' : 'dark');
   } catch (e) { /* 忽略 */ }
 })();
 </script>
@@ -38,11 +40,10 @@
 <link rel="apple-touch-startup-image" href="splash/1125x2436.png" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3)" />
 <link rel="apple-touch-startup-image" href="splash/828x1792.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2)" />
 <link rel="apple-touch-startup-image" href="splash/750x1334.png" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2)" />
-<link rel="stylesheet" href="style.css?v=20260930a" />
-<link rel="stylesheet" href="fx.css?v=20260930a" />
+<link rel="stylesheet" href="style.css?v=20260930b" />
+<link rel="stylesheet" href="fx.css?v=20260930b" />
 </head>
 <body>
-<div class="aurora"></div>
 <div class="topline" id="topline"></div>
 
 <!-- 未登录时的登录页（由 app.js 决定显示还是隐藏） -->
@@ -75,7 +76,7 @@
 
 <div class="app" id="app" hidden>
   <header class="navbar" id="navbar">
-    <!-- 灵动岛停靠条：有任务在跑时挂在岛上，点它去任务页 -->
+    <!-- 灵动岛停靠条：有任务在跑时挂在顶上，点它去任务页 -->
     <button type="button" class="islanddock" id="islandDock" hidden>
       <span class="id-dot"></span>
       <span class="id-title" id="idTitle"></span>
@@ -85,18 +86,16 @@
     </button>
     <div class="nb-row">
       <button class="nb-back" id="navBack" hidden aria-label="返回"><span>&#8249;</span></button>
-      <div class="nb-title" id="navInline">总览</div>
+      <div class="nb-title" id="navInline">书架</div>
       <button class="nb-action" id="navAction" hidden></button>
     </div>
-    <h1 class="nb-large" id="navLarge">总览</h1>
+    <h1 class="nb-large" id="navLarge">书架</h1>
   </header>
 
   <main class="main" id="main" role="main"></main>
 
   <nav class="tabbar" id="tabbar">
-    <div class="tab-ind"><i></i></div>
-    <button class="tab on" data-tab="overview"><span class="tb-ico" data-ico="overview"></span><b>总览</b></button>
-    <button class="tab" data-tab="books"><span class="tb-ico" data-ico="books"></span><b>书架</b></button>
+    <button class="tab on" data-tab="books"><span class="tb-ico" data-ico="books"></span><b>书架</b></button>
     <button class="tab" data-tab="write"><span class="tb-ico" data-ico="write"></span><b>写作</b></button>
     <button class="tab" data-tab="jobs"><span class="tb-ico" data-ico="jobs"></span><b>任务</b><span class="tbadge" id="badgeJobs" hidden></span></button>
     <button class="tab" data-tab="me"><span class="tb-ico" data-ico="me"></span><b>我的</b></button>
@@ -140,10 +139,10 @@
   <div class="wc-tip">点一下直接进入</div>
 </div>
 
-<script src="api.js?v=20260930a"></script>
-<script src="app.js?v=20260930a"></script>
-<script src="pages.js?v=20260930a"></script>
-<script src="editor.js?v=20260930a"></script>
-<script src="book.js?v=20260930a"></script>
+<script src="api.js?v=20260930b"></script>
+<script src="app.js?v=20260930b"></script>
+<script src="pages.js?v=20260930b"></script>
+<script src="editor.js?v=20260930b"></script>
+<script src="book.js?v=20260930b"></script>
 </body>
 </html>
