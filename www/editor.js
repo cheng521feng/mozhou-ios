@@ -652,6 +652,8 @@ window.MZEditor = (function () {
       icon('down', { size: 15 }), h('span', { text: '退出全屏' }));
     function setImmersive(on) {
       wrap.classList.toggle('ed-immersive', !!on);
+      /* 顶栏和底部标签栏在 wrap 外面，得挂在 body 上才藏得住 */
+      document.body.classList.toggle('ed-immersive', !!on);
       exitBtn.hidden = !on;
       immersiveBtn.classList.toggle('on', !!on);
       syncDockLift();
