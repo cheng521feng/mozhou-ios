@@ -38,7 +38,10 @@ a { color: var(--accent); text-decoration: none; }
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Source Han Sans SC", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
+  /* 品牌：一支青玉（与 App 图标同一支 #3ED39C） */
   --accent: #3ed39c;
+  --accent-ink: #04150f;
+  --accent-soft: rgba(62, 211, 156, .13);
   --accent2: #5aa9ff;
   --ok: #3ed39c;
   --amber: #f5b44a;
@@ -47,34 +50,43 @@ a { color: var(--accent); text-decoration: none; }
   --violet: #a78bfa;
 
   --bg: #0a0e15;
-  --bg-deep: #06090f;
+  --bg-deep: #060910;
   --text: #eef3fa;
-  --muted: #93a2b8;
-  --dim: #5f6d82;
+  --muted: #96a5ba;
+  --dim: #61708a;
 
-  --panel: rgba(255, 255, 255, .046);
-  --panel2: rgba(255, 255, 255, .075);
+  --panel: rgba(255, 255, 255, .05);
+  --panel2: rgba(255, 255, 255, .082);
   --glass: rgba(255, 255, 255, .055);
-  --line: rgba(255, 255, 255, .10);
-  --line-soft: rgba(255, 255, 255, .058);
-  --press: rgba(255, 255, 255, .06);
-  --scrim: rgba(4, 7, 12, .6);
-  --nav-bg: rgba(10, 14, 21, .72);
-  --tab-bg: rgba(9, 13, 20, .8);
-  --toast-bg: rgba(21, 27, 38, .9);
-  --toast-line: rgba(255, 255, 255, .13);
+  --line: rgba(255, 255, 255, .095);
+  --line-soft: rgba(255, 255, 255, .055);
+  --press: rgba(255, 255, 255, .07);
+  --scrim: rgba(4, 7, 12, .62);
+  --nav-bg: rgba(10, 14, 21, .74);
+  --tab-bg: rgba(9, 13, 20, .82);
+  --toast-bg: rgba(22, 28, 39, .92);
+  --toast-line: rgba(255, 255, 255, .12);
 
   --skel-a: rgba(255, 255, 255, .05);
-  --skel-b: rgba(255, 255, 255, .125);
-  --ring-track: rgba(255, 255, 255, .10);
+  --skel-b: rgba(255, 255, 255, .12);
+  --ring-track: rgba(255, 255, 255, .095);
   --ring-in-bg: rgba(11, 15, 22, .84);
-  --ring-line: rgba(255, 255, 255, .055);
-  --bar-track: rgba(255, 255, 255, .085);
+  --ring-line: rgba(255, 255, 255, .05);
+  --bar-track: rgba(255, 255, 255, .08);
+
+  /* 环境光：与图标 / 启动页同一套光位 */
+  --ambient-a: rgba(62, 211, 156, .09);
+  --ambient-b: rgba(90, 169, 255, .07);
 
   --r-card: 20px;
   --r-sheet: 26px;
   --spring: cubic-bezier(.22, 1.1, .34, 1);
   --ease: cubic-bezier(.32, .72, 0, 1);
+
+  --sh-1: 0 10px 24px -22px rgba(0, 0, 0, .95);
+  --sh-2: 0 18px 40px -30px rgba(0, 0, 0, .98);
+  --sh-3: 0 30px 60px -32px rgba(0, 0, 0, .95);
+  --hl: inset 0 1px 0 rgba(255, 255, 255, .055);
 
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -85,12 +97,14 @@ a { color: var(--accent); text-decoration: none; }
 }
 html.light {
   --bg: #eef2f8;
-  --bg-deep: #e6ecf5;
+  --bg-deep: #e8eef7;
   --text: #0f1729;
   --muted: #5b6b83;
   --dim: #93a0b4;
 
   --accent: #12b981;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(18, 185, 129, .12);
   --accent2: #2b8cf5;
   --ok: #12b981;
   --amber: #d9950f;
@@ -100,8 +114,8 @@ html.light {
   --panel: rgba(255, 255, 255, .74);
   --panel2: rgba(255, 255, 255, .92);
   --glass: rgba(255, 255, 255, .66);
-  --line: rgba(15, 23, 41, .11);
-  --line-soft: rgba(15, 23, 41, .065);
+  --line: rgba(15, 23, 41, .1);
+  --line-soft: rgba(15, 23, 41, .06);
   --press: rgba(15, 23, 41, .05);
   --scrim: rgba(23, 33, 48, .32);
   --nav-bg: rgba(238, 242, 248, .78);
@@ -115,6 +129,14 @@ html.light {
   --ring-in-bg: rgba(255, 255, 255, .95);
   --ring-line: rgba(15, 23, 41, .06);
   --bar-track: rgba(15, 23, 41, .08);
+
+  --ambient-a: rgba(18, 185, 129, .13);
+  --ambient-b: rgba(43, 140, 245, .1);
+
+  --sh-1: 0 10px 24px -22px rgba(23, 33, 48, .38);
+  --sh-2: 0 18px 40px -30px rgba(23, 33, 48, .34);
+  --sh-3: 0 30px 60px -32px rgba(23, 33, 48, .3);
+  --hl: inset 0 1px 0 rgba(255, 255, 255, .75);
   color-scheme: light;
 }
 
@@ -123,11 +145,11 @@ html.light {
   position: fixed; inset: -28% -34% auto -34%; height: 86%;
   z-index: 0; pointer-events: none;
   background:
-    radial-gradient(48% 44% at 24% 20%, rgba(62, 211, 156, .20), transparent 70%),
-    radial-gradient(44% 42% at 80% 12%, rgba(90, 169, 255, .19), transparent 72%),
-    radial-gradient(40% 40% at 52% 56%, rgba(167, 139, 250, .14), transparent 74%);
-  filter: blur(14px) saturate(130%);
-  animation: mzAurora 26s ease-in-out infinite;
+    radial-gradient(46% 42% at 30% 18%, rgba(62, 211, 156, .22), transparent 70%),
+    radial-gradient(42% 40% at 78% 14%, rgba(90, 169, 255, .17), transparent 72%),
+    radial-gradient(38% 36% at 54% 58%, rgba(167, 139, 250, .10), transparent 74%);
+  filter: blur(16px) saturate(126%);
+  animation: mzAurora 30s ease-in-out infinite;
 }
 .aurora::after {
   content: ''; position: absolute; inset: 0;
@@ -1045,3 +1067,67 @@ button.ed-nb-sm.on { background: color-mix(in srgb, var(--accent) 30%, transpare
 }
 .ed-exit[hidden] { display: none; }
 .ed-exit:active { transform: scale(.94); }
+
+/* ==========================================================================
+   视觉系统 v4（2026-09-30）
+   —— 对齐新图标：深墨底 + 一支青玉 + 少而准的层次。
+   只调观感，不动任何类名与结构（JS / 测试都照着老类名走）。
+   ========================================================================== */
+
+/* ---- 卡片：一层顶部高光 + 更收的投影，玻璃感更干净 ---- */
+.card { box-shadow: var(--sh-2), var(--hl); }
+.card.tight { box-shadow: var(--sh-1), var(--hl); }
+.list { box-shadow: var(--sh-1); }
+.kpi { box-shadow: var(--sh-1), var(--hl); }
+.sw-row { box-shadow: var(--hl); }
+
+/* ---- 按钮：内高光 + 按下去更实 ---- */
+.btn { box-shadow: var(--hl); transition: transform .16s var(--spring), filter .2s ease; }
+.btn:active { transform: scale(.975); }
+.btn.primary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 97%, #fff 10%), color-mix(in srgb, var(--accent) 84%, #000 8%));
+  color: var(--accent-ink);
+  box-shadow: 0 14px 30px -16px color-mix(in srgb, var(--accent) 62%, transparent), inset 0 1px 0 rgba(255, 255, 255, .34);
+}
+html.light .btn.primary { color: #fff; box-shadow: 0 14px 30px -16px color-mix(in srgb, var(--accent) 52%, transparent), inset 0 1px 0 rgba(255, 255, 255, .5); }
+.chip.solid { box-shadow: var(--hl); }
+
+/* ---- 分段控件 / 列表：选中的那格浮起来 ---- */
+.seg button.on { box-shadow: 0 8px 18px -14px rgba(0, 0, 0, .95), var(--hl); }
+.li-title { font-weight: 580; }
+.section-title { letter-spacing: .5px; }
+
+/* ---- 导航 / 底栏 ---- */
+.nb-action { background: var(--accent-soft); }
+.tab.on .tb-ico { filter: drop-shadow(0 5px 11px color-mix(in srgb, var(--accent) 42%, transparent)); }
+
+/* ---- 抽屉 / 弹窗 ---- */
+.sheet { box-shadow: var(--sh-3), var(--hl); }
+.modalbox { box-shadow: var(--sh-3), var(--hl); }
+.as-group { box-shadow: var(--hl); }
+
+/* ---- 大标题：字距再收一点 ---- */
+.nb-large { font-size: 30px; font-weight: 730; letter-spacing: -.8px; }
+
+/* ---- 启动页 / 登录页：跟原生启动图一个观感 ---- */
+.splash {
+  gap: 14px;
+  background:
+    radial-gradient(74% 54% at 50% 33%, var(--ambient-a), transparent 72%),
+    radial-gradient(94% 62% at 50% 108%, var(--ambient-b), transparent 70%),
+    var(--bg-deep);
+}
+.splash img { width: 88px; height: 88px; border-radius: 25px; }
+
+.login-logo {
+  width: 88px; height: 88px; border-radius: 25px;
+  background: transparent; color: var(--accent);
+  filter: drop-shadow(0 18px 42px color-mix(in srgb, var(--accent) 34%, transparent));
+}
+.login-logo img { border-radius: 25px; }
+.login-logo svg, .splash svg { width: 100%; height: 100%; }
+.splash b { font-size: 18px; font-weight: 680; letter-spacing: 1.1px; }
+.splash i { letter-spacing: .4px; }
+
+/* ---- 空态图标：跟新标一致的柔光 ---- */
+.empty .em-ico { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent); }
