@@ -43,7 +43,7 @@
         } else {
           out.appendChild(h('div.card', null,
             h('div.card-head', null, h('h3', { text: '当前没有任务在跑' }), h('span.sp', null, h('span.dot', { style: { opacity: '.35' } }))),
-            h('div.small.muted', { text: '去书架点「补更（续写）」或总览点「跑今日自动更新」，这里就会实时显示进度、当前章节和正在调用的模型。' }),
+            h('div.small.muted', { text: '去书架点顶部的「补更」，或者在作品页点「补更（续写）」；跑起来之后这里会实时显示进度、当前章节和正在调用的模型。' }),
             buttons([{ label: '去书架', tone: 'primary', onTap: function () { A.switchTab('books'); } }])));
         }
 
