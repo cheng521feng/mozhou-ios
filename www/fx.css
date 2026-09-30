@@ -181,7 +181,6 @@ html.light .ripple { background: radial-gradient(circle, rgba(20,40,70,.2), rgba
   position: absolute; inset: 5.5px; border-radius: 999px;
   background: var(--ring-in-bg);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
 }
 .ring-in b { font-size: 1.06em; font-weight: 680; letter-spacing: -.4px; }
 .ring-in small { font-size: .62em; color: var(--muted); }
@@ -221,7 +220,7 @@ html.light .ripple { background: radial-gradient(circle, rgba(20,40,70,.2), rgba
 .bar.flat .bar-fill::after { animation: none; opacity: .3; }
 
 /* ============================== 标签 chip ============================== */
-.chip { animation: mzPop .34s var(--spring) both; }
+/* v6：标签不再逐个弹入（书架一屏几十个标签，逐个动画会掉帧） */
 .chip svg { width: 13px; height: 13px; flex: 0 0 auto; opacity: .95; }
 /* v6：标签不再画一圈内描边（那是上一版的玻璃感），交给底色说话 */
 
