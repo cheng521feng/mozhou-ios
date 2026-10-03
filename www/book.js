@@ -192,9 +192,26 @@ window.MZBook = (function () {
     return h('div.bk-head', null, coverNode(n), main);
   }
 
+  /* 阅读器的入口统一走这里：脚本万一没加载出来，给一句人话，别静默 */
+  function openReader(nid, cid, opt) {
+    if (window.MZReader && MZReader.open) { MZReader.open(nid, cid, opt); return; }
+    toast('阅读器没加载出来，退出重进一次试试', 'bad');
+  }
+
+  /* 「继续阅读」按钮上的字：上次读到哪儿就写哪儿（位置只记在本机） */
+  function readLabel(n) {
+    const p = (window.MZReader && MZReader.last) ? MZReader.last(n.id) : null;
+    if (!p) return '开始阅读' + (n.chapter_count ? '（共 ' + n.chapter_count + ' 章）' : '');
+    const tail = p.label.length > 15 ? p.label.slice(0, 15) + '…' : p.label;
+    return '继续阅读 · ' + tail;
+  }
+
   function groups(n) {
     const box = h('div');
     const row = function (items) { box.appendChild(buttons(items)); };
+    row([
+      { label: readLabel(n), tone: 'primary', onTap: function () { openReader(n.id); } },
+    ]);
     row([
       { label: '补更（续写）', tone: 'primary', onTap: function () { A.askUpdate(n); } },
       { label: '无人值守续写', onTap: function () { unattended(n); } },
@@ -265,7 +282,7 @@ window.MZBook = (function () {
     (nv.metrics || []).forEach(function (m) { scoreMap[m.idx] = m.score; });
     const box = h('div');
     box.appendChild(h('div.section-title', null,
-      h('span', { text: '章节' }), h('span.sp', { text: '共 ' + list.length + ' 章 · 点开就写' })));
+      h('span', { text: '章节' }), h('span.sp', { text: '共 ' + list.length + ' 章 · 点开就读' })));
     if (!list.length) {
       box.appendChild(emptyBox('write', '还没有章节',
         '点上面「补更（续写）」让模型写第一章；已经有稿子的话，回书架用「新建 → 粘贴文本导入」'));
@@ -287,7 +304,7 @@ window.MZBook = (function () {
           sc === undefined || sc === null ? null : chip(String(Math.round(sc)), sc >= 75 ? 'ok' : (sc >= 55 ? '' : 'bad')),
           more),
         arrow: true,
-        onTap: function () { MZEditor.openChapter(nid, c.id, { title: c.title, idx: c.idx }); },
+        onTap: function () { openReader(nid, c.id, { title: c.title, idx: c.idx }); },
       }));
     });
     box.appendChild(l);
@@ -297,6 +314,7 @@ window.MZBook = (function () {
 
   function chapterMenu(nid, c) {
     actions([
+      { label: '读这一章', icon: 'book', sub: '沉浸阅读器，左右翻章', onPick: function () { openReader(nid, c.id, { title: c.title, idx: c.idx }); } },
       { label: '写这一章', icon: 'edit', onPick: function () { MZEditor.openChapter(nid, c.id, { title: c.title, idx: c.idx }); } },
       { label: '重命名', icon: 'file', onPick: function () { renameChapter(c); } },
       { label: '删除这一章', icon: 'trash', danger: true, sub: '进回收站，可恢复', onPick: function () { deleteChapter(c); } },
@@ -667,7 +685,8 @@ window.MZBook = (function () {
 
   function coverSheet(n) {
     if (!n) return;
-    const items = [];
+    const items = [
+      { label: '开始阅读', sub: '沉浸阅读器', icon: 'book', onPick: function () { openReader(n.id); } },]
     if (n.cover_url) {
       items.push({ label: '保存封面', sub: '存到相册 / 文件', icon: 'download', onPick: function () { saveCover(n); } });
       items.push({ label: '看大图', icon: 'eye', onPick: function () { coverPreview(n); } });
