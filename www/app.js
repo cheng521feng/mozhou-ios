@@ -519,12 +519,72 @@ window.MZApp = (function () {
   function pop() { if (!state.stack.length) return; state.stack.pop(); state.anim = 'back'; render(); }
   function doneMsg(res, okMsg) { toast((res && res.msg) || okMsg || '完成', 'ok'); return res; }
   /* ============================== 数据 ============================== */
+
+  /* ---------- 别的客户端改了稿子，这边自己跟上 ----------
+     墨舟是「电脑上一个本地库 + 云端一份」：手机 / 平板看到的一直是云端那份，
+     电脑上删了书 / 写了新章，云端要等一次同步才变；别人在另一头删了书，
+     这边界面也会一直摆着那本已经没了的书，点进去才报错。
+     以前只有「下拉刷新」和「重开 App」才会重新拉一次书架 —— 用户的原话是
+     「同一账号下删除作品，其他客户端并没有同步」。
+     现在每 15 秒（以及从后台切回前台时）对一次 /api/overview：
+     书的数量 / 标题 / 章节数 / 字数 / 更新时间有任何变化才重画，没变就一个像素都不动。 */
+  const SHELF_CHECK_MS = 15000;
+  let shelfSig = '';
+  let shelfTimer = null;
+  let shelfBusy = false;
+
+  /* 书架的「指纹」：只取会显示在界面上的那几项，够用来判断「变没变」 */
+  function shelfSignature(h) {
+    if (!h) return '';
+    const ns = (h.novels || []).map(function (n) {
+      return [n.id, n.title, n.chapter_count, n.total_chars, n.updated_at,
+        (n.plan && n.plan.today_made) || 0, n.busy ? 1 : 0,
+        n.cover_url ? 1 : 0].join('~');
+    }).join('|');
+    const st = h.stats || {};
+    return ns + '#' + [st.novels, st.chapters, st.chars].join(',');
+  }
+
+  /* 全屏覆盖层（写作台 / 阅读器）开着的时候不要去动底下那一屏 */
+  function shelfOverlayOpen() {
+    return !!document.querySelector('.ed-wrap, .rd-wrap');
+  }
+
+  async function syncShelf() {
+    if (document.hidden || shelfBusy) return false;
+    /* 写作台 / 阅读器开着：先不动，等它关掉之后那一轮再来对 */
+    if (shelfOverlayOpen()) return false;
+    /* 正在输入（搜索书名之类）：重画会把输入框的焦点和键盘弄掉，等下轮到再说 */
+    const ae = document.activeElement;
+    if (ae && (/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) || ae.isContentEditable)) return false;
+    shelfBusy = true;
+    try {
+      const h = await api.get('/api/overview', { timeout: 20000 });
+      if (shelfOverlayOpen()) return false;
+      const sig = shelfSignature(h);
+      const changed = !!shelfSig && sig !== shelfSig;
+      state.hero = h;
+      state.novels = h.novels || [];
+      state.version = h.version || '';
+      if (h.live) state.live = h.live;
+      state.hydrated = true;
+      shelfSig = sig;
+      if (changed) await render({ keepScroll: true });
+      return changed;
+    } catch (e) {
+      return false;      /* 断网 / 超时：下一轮再来，不弹错 */
+    } finally {
+      shelfBusy = false;
+    }
+  }
+
   async function loadHero() {
     state.hero = await api.get('/api/overview');
     state.novels = state.hero.novels || [];
     state.version = state.hero.version || '';
     if (state.hero.live) state.live = state.hero.live;
     state.hydrated = true;
+    shelfSig = shelfSignature(state.hero);
     return state.hero;
   }
   async function ensureHero() { if (!state.hydrated) await loadHero(); return state.hero; }
@@ -2245,11 +2305,17 @@ window.MZApp = (function () {
   }
   function startTimer() {
     if (liveTimer) { clearTimeout(liveTimer); clearInterval(liveTimer); }
+    if (shelfTimer) { clearInterval(shelfTimer); shelfTimer = null; }
     pollLive(900);
     if (!pollBound) {
       pollBound = true;
+      /* 书架对齐：每 15 秒一次（定时器退到后台会被系统挂起，没关系，回来时会立刻补一次） */
+      shelfTimer = setInterval(function () { syncShelf(); }, SHELF_CHECK_MS);
       document.addEventListener('visibilitychange', function () {
-        if (!document.hidden) refreshLive();   /* 回到前台：不等定时器，立刻对齐真实状态 */
+        if (!document.hidden) {
+          refreshLive();   /* 回到前台：不等定时器，立刻对齐真实状态 */
+          syncShelf();     /* 顺手把书架也对一次：别的端删了书，一回来就看不到它了 */
+        }
       });
     }
   }
