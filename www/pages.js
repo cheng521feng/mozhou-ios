@@ -31,31 +31,149 @@
       action: A.liveBusy(A.state.live) ? { label: '停止全部', onTap: function () { A.stopAll(); } } : null,
       async mount(body) {
         const out = h('div.pad');
-        const live = A.state.live || {};
-
-        if (A.liveBusy(live)) {
-          out.appendChild(MZUI.liveHero(live, { maxEvents: 12 }));
-          const ops = MZUI.opsNode(live);
-          if (ops) {
-            out.appendChild(h('div.section-title', { text: '正在跑的功能' }));
-            out.appendChild(ops);
-          }
-        } else {
-          out.appendChild(h('div.card', null,
-            h('div.card-head', null, h('h3', { text: '当前没有任务在跑' }), h('span.sp', null, h('span.dot', { style: { opacity: '.35' } }))),
-            h('div.small.muted', { text: '去书架点顶部的「补更」，或者在作品页点「补更（续写）」；跑起来之后这里会实时显示进度、当前章节和正在调用的模型。' }),
-            buttons([{ label: '去书架', tone: 'primary', onTap: function () { A.switchTab('books'); } }])));
-        }
-
-        const d = await api.get('/api/jobs?limit=30');
-        const jobs = d.jobs || [];
-        out.appendChild(h('div.section-title', null, h('span', { text: '最近任务' }), h('span.sp', { text: '近 ' + jobs.length + ' 条' })));
-        if (!jobs.length) { out.appendChild(emptyBox('jobs', '还没有任务记录', '发起一次补更就会出现在这里')); return out; }
-        jobs.forEach(function (j) { out.appendChild(jobCard(j)); });
+        /* 顶部「现在在跑什么」和下面「最近任务」拆成两块独立刷新。
+           轮询只调用 view.paint()，把内容真的变了的哪一块换掉，
+           不再整页 clear + 重建——以前每 1.6 秒重来一次，用户的原话是
+           「一直在跳、一直在刷新」。 */
+        const view = jobsView(out);
+        A.state.jobsView = view;
+        view.busy = A.liveBusy(A.state.live);
+        view.histAt = Date.now();
+        view.paint(A.state.jobsHistory || null);
+        try {
+          const d = await api.get('/api/jobs?limit=30');
+          A.state.jobsHistory = (d && d.jobs) || [];
+        } catch (e) { A.state.jobsHistory = A.state.jobsHistory || []; }
+        view.histAt = Date.now();
+        view.paint(A.state.jobsHistory);
         return out;
       },
     };
   };
+
+  function jobRunning(j) { return j.status === 'running' || j.status === 'queued'; }
+  function jobsActiveKey() {
+    return (A.state.liveJobs || []).filter(jobRunning)
+      .map(function (j) { return j.id; }).sort().join(',');
+  }
+  /* 「最近任务」列表的数据指纹：这几项没变就不用重建那一列 DOM */
+  function jobsListStamp(jobs) {
+    if (!jobs) return '\u0000';
+    return jobs.map(function (j) {
+      return [j.id, j.status, j.done, j.total, j.failed, j.title, j.message,
+        j.created_at, j.finished_at].join('|');
+    }).join('\n');
+  }
+  /* 顶部那块只认「真的会画出来」的字段。
+     elapsed 每轮都在涨，但它只是「已用时」那几个字，原地改那一处就行；
+     把它算进指纹的话，每轮都要重建一次进度环（环会从 0 重播动画），
+     看起来就是一直在闪。 */
+  function jobsHeroStamp(live) {
+    const ops = live.ops || {};
+    const opSig = Object.keys(ops).map(function (k) {
+      const o = ops[k] || {};
+      return [k, o.title, o.phase, o.note, Math.round(o.pct || 0), o.finished ? 1 : 0,
+        o.ok === false ? 0 : 1, o.step, (o.steps || []).join(',')].join(':');
+    }).join(';');
+    const q = live.queue || {};
+    const qSig = [q.active || 0, q.queued || 0,
+      (q.waiting || []).map(function (w) { return (w && (w.model || w.name)) || w; }).join(',')].join(':');
+    const bSig = (live.books || []).map(function (b) {
+      return [b.id, b.title, b.phase, b.need, b.done, b.current_idx, b.last_idx,
+        b.last_words, b.failed, b.error].join(':');
+    }).join(';');
+    const eSig = (live.events || []).slice(-12).map(function (e) {
+      return ((e && e.at) || '') + '|' + ((e && (e.msg || e.message)) || e || '');
+    }).join(';');
+    return [live.running ? 1 : 0, Math.round(live.pct || 0), live.done, live.total,
+      live.job_title, live.phase, live.msg, live.chars, opSig, qSig, bSig, eSig].join('#');
+  }
+  function jobsView(out) {
+    const heroBox = h('div.jobs-hero');
+    const listBox = h('div.jobs-list');
+    out.appendChild(heroBox);
+    out.appendChild(listBox);
+    const view = {
+      heroBox: heroBox, listBox: listBox, heroSig: '', listSig: '',
+      histAt: 0, histBusy: false, busy: false, activeKey: jobsActiveKey(),
+    };
+    /* 换块时把滚动位置补回来：块变高了，下面的内容整体往下挪，用户就会觉得「跳」。
+       这里量一下高度差补进 scrollTop，读到的还是原来那一行。 */
+    function swap(box, keepScroll, build) {
+      const main = document.getElementById('main');
+      const before = keepScroll && main ? box.getBoundingClientRect().height : 0;
+      clear(box);
+      build(box);
+      if (keepScroll && main && main.scrollTop > 2) {
+        const d = box.getBoundingClientRect().height - before;
+        if (d) main.scrollTop += d;
+      }
+    }
+    view.paintHero = function (live) {
+      live = live || {};
+      const sig = jobsHeroStamp(live);
+      if (sig === view.heroSig) { paintElapsed(heroBox, live); return; }
+      view.heroSig = sig;
+      swap(heroBox, true, function (box) {
+        if (A.liveBusy(live)) {
+          box.appendChild(MZUI.liveHero(live, { maxEvents: 12 }));
+          const ops = MZUI.opsNode(live);
+          if (ops) {
+            box.appendChild(h('div.section-title', { text: '正在跑的功能' }));
+            box.appendChild(ops);
+          }
+        } else {
+          box.appendChild(h('div.card', null,
+            h('div.card-head', null, h('h3', { text: '当前没有任务在跑' }),
+              h('span.sp', null, h('span.dot', { style: { opacity: '.35' } }))),
+            h('div.small.muted', { text: '去书架点顶部的「补更」，或者在作品页点「补更（续写）」；跑起来之后这里会实时显示进度、当前章节和正在调用的模型。' }),
+            buttons([{ label: '去书架', tone: 'primary', onTap: function () { A.switchTab('books'); } }])));
+        }
+      });
+    };
+    view.paintList = function (jobs) {
+      const sig = jobsListStamp(jobs);
+      if (sig === view.listSig) return;
+      view.listSig = sig;
+      swap(listBox, false, function (box) {
+        box.appendChild(h('div.section-title', null, h('span', { text: '最近任务' }),
+          h('span.sp', { text: jobs ? ('近 ' + jobs.length + ' 条') : '' })));
+        if (jobs === null) return;   /* 还没拉到：先空着，免得闪一下「还没有任务记录」 */
+        if (!jobs.length) { box.appendChild(emptyBox('jobs', '还没有任务记录', '发起一次补更就会出现在这里')); return; }
+        jobs.forEach(function (j) { box.appendChild(jobCard(j)); });
+      });
+    };
+    view.paint = function (jobs) {
+      view.paintHero(A.state.live || {});
+      view.paintList(jobs);
+      const ids = jobsActiveKey();
+      view.refreshHistory(ids !== view.activeKey);
+      view.activeKey = ids;
+    };
+    /* 「最近任务」要查库（/api/jobs），不用每轮都查：
+       任务开始 / 结束（活跃 id 变了）立刻查，跑着的时候最多 6 秒查一次，闲时不查。 */
+    view.refreshHistory = function (force) {
+      const now = Date.now();
+      if (view.histBusy) return;
+      if (!force && (now - view.histAt < 6000 || !A.liveBusy(A.state.live))) return;
+      view.histBusy = true; view.histAt = now;
+      api.get('/api/jobs?limit=30').then(function (d) {
+        view.histBusy = false;
+        A.state.jobsHistory = (d && d.jobs) || [];
+        view.paintList(A.state.jobsHistory);
+      }).catch(function () { view.histBusy = false; });
+    };
+    return view;
+  }
+  /* 「已用时」原地改字：不算进指纹，就不会为了跳秒把整块重建 */
+  function paintElapsed(box, live) {
+    const el = box.querySelector('.lh-elapsed');
+    if (!el) return;
+    const t = live.elapsed ? ('已用时 ' + fmtDur(live.elapsed)) : '';
+    if (el.textContent !== t) el.textContent = t;
+    if (t) el.removeAttribute('hidden'); else el.setAttribute('hidden', '');
+  }
+
   function jobCard(j) {
     const total = j.total || 0, done = j.done || 0;
     const running = j.status === 'running' || j.status === 'queued';
@@ -108,19 +226,15 @@
         const settings = hero.settings || {};
         const providers = hero.providers || {};
 
-        /* 我的资料（头像 / 用户名 / 性别 / 年龄） */
+        /* ---- 我的资料（头像 / 用户名 / 性别 / 年龄） ---- */
         out.appendChild(profileCard());
 
-        /* 账号 */
+        /* ---- 账号与同步 ---- */
         const acct = h('div.card');
         acct.appendChild(h('div.card-head', null,
           h('h3', { text: '账号与同步' }),
-          chip(cloudLabel(), 'ok', 'cloud')));
+          h('span.sp', null, chip(cloudLabel(), 'ok', 'cloud'))));
         acct.appendChild(h('div.small.muted', { text: '手机和电脑登录同一个账号，看到的永远是同一份稿子；每一次保存都会自动同步。' }));
-        acct.appendChild(buttons([
-          { label: '退出登录', tone: 'danger', size: 'sm', onTap: function () { logout(); } },
-          { label: '填访问口令', size: 'sm', onTap: function () { A.openTokenDialog().then(function (saved) { if (saved) A.refreshAll(false); }); } },
-        ]));
         const pwRow = h('div.li.tap', null,
           h('div.li-ico', null, icon('lock', { size: 20 })),
           h('div.li-main', null,
@@ -131,29 +245,35 @@
         const pwWrap = h('div.list.pwrows');
         pwWrap.appendChild(pwRow);
         acct.appendChild(pwWrap);
+        acct.appendChild(buttons([
+          { label: '退出登录', tone: 'danger', size: 'sm', onTap: function () { logout(); } },
+          { label: '填访问口令', size: 'sm', onTap: function () { A.openTokenDialog().then(function (saved) { if (saved) A.refreshAll(false); }); } },
+        ]));
         out.appendChild(acct);
 
-        /* 正在跑 / 排队 */
+        /* ---- 正在跑 / 排队 ---- */
         if (A.liveBusy(A.state.live)) {
-          out.appendChild(h('div.section-title', { text: '实时状态' }));
+          out.appendChild(h('div.section-title', null, h('span', { text: '实时状态' })));
           out.appendChild(MZUI.liveHero(A.state.live, { maxEvents: 4 }));
         }
 
-        /* 使用的模型：勾几个就调几个，谁干什么由 App 自动分配 */
+        /* ---- 使用的模型：勾几个就调几个，谁干什么由 App 自动分配 ---- */
         out.appendChild(h('div.section-title', null,
           h('span', { text: '使用的模型' }),
           h('span.sp', { text: '勾几个就调几个' })));
         const ml = h('div.list.models');
         MODELS.forEach(function (k) { ml.appendChild(modelPickRow(k)); });
-        out.appendChild(ml);
+        out.appendChild(card(null, null, [ml]));
         out.appendChild(roleCard());
 
-        /* 用量 */
+        /* ---- 用量 ---- */
         const u = hero.usage || {};
         const byP = u.by_provider || [];
         if (byP.length) {
-          out.appendChild(h('div.section-title', { text: '模型用量' }));
-          const uc = card(null, null, null);
+          const uc = h('div.card');
+          uc.appendChild(h('div.card-head', null,
+            h('h3', { text: '模型用量' }),
+            h('span.sp', { text: '累计 ' + fmtNum(u.total_calls || 0) + ' 次调用' })));
           const max = byP.reduce(function (m, x) { return Math.max(m, x.calls || 0); }, 0) || 1;
           byP.forEach(function (x) {
             uc.appendChild(h('div.usage-row', null,
@@ -161,36 +281,32 @@
               h('span.ur-b', null, bar((x.calls || 0) / max * 100)),
               h('span.ur-v', { text: fmtNum(x.calls || 0) + ' 次' })));
           });
-          uc.appendChild(h('div.live-nums.mt12', null,
-            h('span', { text: '累计 ' + fmtNum(u.total_calls || 0) + ' 次调用' }),
-            h('span', { text: '生成 ' + fmtNum(u.completion_chars || 0) + ' 字' }),
-            (u.elapsed_ms ? h('span', { text: '耗时 ' + fmtDur(Math.round((u.elapsed_ms || 0) / 1000)) }) : null)));
+          uc.appendChild(h('div.footnote', { text: '生成 ' + fmtNum(u.completion_chars || 0) + ' 字'
+            + (u.elapsed_ms ? ' · 耗时 ' + fmtDur(Math.round((u.elapsed_ms || 0) / 1000)) : '') }));
           out.appendChild(uc);
         }
 
-        /* 写作设置（跟电脑端设置页同一套项，改完立即生效） */
-        out.appendChild(h('div.section-title', { text: '写作设置' }));
+        /* ---- 写作设置（跟电脑端设置页同一套项，改完立即生效） ---- */
         const wl = h('div.list');
         wl.appendChild(pickRow('写作策略', '默认按每本书自己的设置', strategyWord(settings), STRATEGY_ITEMS,
-          'gen_strategy', function (v) { saveSetting('gen_strategy', v, '写作策略已更新'); }));
+          'gen_strategy', function (v) { saveSetting('gen_strategy', v, '写作策略已更新'); }, 'target'));
         wl.appendChild(pickRow('模型调用并发', '撞限流会自动退回一个个来', concWord(settings), CONC_ITEMS,
-          'llm_concurrency', function (v) { saveSetting('llm_concurrency', v, '调用并发已更新'); }));
+          'llm_concurrency', function (v) { saveSetting('llm_concurrency', v, '调用并发已更新'); }, 'bolt'));
         wl.appendChild(pickRow('单章失败自动重试', '写崩了自动再试几次', (settings.auto_retry || '2') + ' 次', RETRY_ITEMS,
-          'auto_retry', function (v) { saveSetting('auto_retry', v, '重试次数已更新'); }));
+          'auto_retry', function (v) { saveSetting('auto_retry', v, '重试次数已更新'); }, 'refresh'));
         wl.appendChild(pickRow('并发写书数', '无人值守续写时同时写几本', (settings.gen_workers || '2') + ' 本', BOOK_WORKER_ITEMS,
-          'gen_workers', function (v) { saveSetting('gen_workers', v, '并发写书数已更新'); }));
+          'gen_workers', function (v) { saveSetting('gen_workers', v, '并发写书数已更新'); }, 'layers'));
         wl.appendChild(swRow('快速模式', '跳过模型深度去AI化，只做规则清洗，快很多',
-          settings.fast_mode === '1', flagSetting('fast_mode', '快速模式')));
+          settings.fast_mode === '1', flagSetting('fast_mode', '快速模式'), 'fire'));
         wl.appendChild(swRow('字数不达标自动补写', '推荐开着，免得每章都差几百字',
-          settings.quality_gate === '1', flagSetting('quality_gate', '自动补写')));
+          settings.quality_gate === '1', flagSetting('quality_gate', '自动补写'), 'plus'));
         wl.appendChild(swRow('每章写完自动更新前情摘要', '关掉更省钱，但前后连贯性会下降',
-          settings.summary_update === '1', flagSetting('summary_update', '前情摘要')));
+          settings.summary_update === '1', flagSetting('summary_update', '前情摘要'), 'history'));
         wl.appendChild(swRow('本地演示模式', '不调用模型，用样例文本跑通全流程，用来试操作',
-          settings.demo_mode === '1', flagSetting('demo_mode', '演示模式')));
-        out.appendChild(wl);
+          settings.demo_mode === '1', flagSetting('demo_mode', '演示模式'), 'play'));
+        out.appendChild(card('写作设置', h('span', { text: '改完立即生效' }), [wl]));
 
-        /* 质检设置 */
-        out.appendChild(h('div.section-title', { text: '质检设置' }));
+        /* ---- 质检设置 ---- */
         const ql = h('div.list');
         ql.appendChild(li({
           ico: 'target',
@@ -201,35 +317,32 @@
         }));
         ql.appendChild(pickRow('全书质检范围', '抽样省钱，全书逐章最准',
           settings.hit_review_scope === 'all' ? '全书逐章' : '抽样（约 24 章）', SCOPE_ITEMS,
-          'hit_review_scope', function (v) { saveSetting('hit_review_scope', v, '质检范围已更新'); }));
+          'hit_review_scope', function (v) { saveSetting('hit_review_scope', v, '质检范围已更新'); }, 'search'));
         ql.appendChild(swRow('评分不思考', '纯按评分标准判断，快 5~10 倍还省钱',
-          settings.hit_review_fast !== '0', flagSetting('hit_review_fast', '评分不思考')));
+          settings.hit_review_fast !== '0', flagSetting('hit_review_fast', '评分不思考'), 'spark'));
         ql.appendChild(pickRow('同时评几章', '同时评得多容易被限流', (settings.hit_review_workers || '2') + ' 章',
-          REVIEW_WORKER_ITEMS, 'hit_review_workers', function (v) { saveSetting('hit_review_workers', v, '质检并发已更新'); }));
+          REVIEW_WORKER_ITEMS, 'hit_review_workers', function (v) { saveSetting('hit_review_workers', v, '质检并发已更新'); }, 'chart'));
         ql.appendChild(swRow('局部重写后自动复评', '改完自动再评一次，看到改前改后差多少分',
-          settings.hit_review_auto !== '0', flagSetting('hit_review_auto', '自动复评')));
-        out.appendChild(ql);
+          settings.hit_review_auto !== '0', flagSetting('hit_review_auto', '自动复评'), 'check'));
+        out.appendChild(card('质检设置', h('span', { text: '按评分标准逐章打分' }), [ql]));
 
-        /* 词表与合规 */
-        out.appendChild(h('div.section-title', { text: '词表与合规' }));
+        /* ---- 词表与合规 ---- */
         const cl = h('div.list');
         cl.appendChild(li({ ico: 'edit', title: '去AI化词表',
           sub: wordCount(settings.ai_words_extra, '还没加自定义词'), arrow: true, onTap: wordSheet }));
         cl.appendChild(li({ ico: 'shield', title: '合规预检词表',
           sub: '自己加的雷区词 / 误报放行名单', arrow: true, onTap: complianceSheet }));
-        out.appendChild(cl);
+        out.appendChild(card('词表与合规', h('span', { text: '换词的口气，不动剧情' }), [cl]));
 
-        /* 数据与备份 */
-        out.appendChild(h('div.section-title', { text: '数据与备份' }));
+        /* ---- 数据与备份 ---- */
         const bl = h('div.list');
         bl.appendChild(li({ ico: 'cloud', title: '立即备份数据库', sub: '备份存在云服务器上', arrow: true, onTap: doBackup }));
         bl.appendChild(li({ ico: 'history', title: '查看备份列表', arrow: true, onTap: showBackups }));
         bl.appendChild(li({ ico: 'download', title: '导出这本书', sub: '选一本导成 txt', arrow: true, onTap: pickExport }));
         bl.appendChild(li({ ico: 'trash', title: '回收站', sub: '删掉的作品 / 章节在这里，能恢复', arrow: true, onTap: showTrash }));
-        out.appendChild(bl);
+        out.appendChild(card('数据与备份', h('span', { text: '都在云服务器上' }), [bl]));
 
-        /* 应用与显示 */
-        out.appendChild(h('div.section-title', { text: '应用与显示' }));
+        /* ---- 外观 / 应用 ---- */
         out.appendChild(appearanceCard());
         const al = h('div.list');
         al.appendChild(li({
@@ -240,27 +353,29 @@
           arrow: !standalone(),
           onTap: standalone() ? null : showInstallGuide,
         }));
-        al.appendChild(li({
+                al.appendChild(li({
           ico: 'bell',
           title: '自动更新',
-          sub: settings.auto_enabled ? ('每天 ' + (settings.auto_time || '08:00') + ' 自动写') : '当前关闭',
-          right: chip(settings.auto_enabled ? '已开启' : '已关闭', settings.auto_enabled ? 'ok' : ''),
+          sub: autoOn(settings) ? ('每天 ' + (settings.auto_time || '08:00') + ' 自动写') : '当前关闭',
+          right: chip(autoOn(settings) ? '已开启' : '已关闭', autoOn(settings) ? 'ok' : ''),
+          arrow: true,
+          onTap: autoSheet,
         }));
-        out.appendChild(al);
+        out.appendChild(card('应用', h('span', { text: standalone() ? '全屏运行中' : '可装到桌面' }), [al]));
 
-        /* 关于 */
-        out.appendChild(h('div.section-title', { text: '关于' }));
+        /* ---- 关于 ---- */
         const gl = h('div.list');
         gl.appendChild(li({ ico: 'dot', title: '服务端版本', right: h('span.num', { text: A.state.version || '—' }) }));
         gl.appendChild(li({ ico: 'books', title: '作品 / 章节', right: h('span.num', { text: (st.novels || 0) + ' 本 / ' + (st.chapters || 0) + ' 章' }) }));
         gl.appendChild(li({ ico: 'write', title: '累计字数', right: h('span.num', { text: fmtWords(st.chars || 0) }) }));
         gl.appendChild(li({ ico: 'layers', title: '界面', right: h('span', { text: '移动端 v5 · 液态墨' }) }));
-        out.appendChild(gl);
+        out.appendChild(card('关于', h('span', { text: 'v5 · 液态墨' }), [gl]));
         out.appendChild(h('div.footnote', { text: '数据都在服务器上：手机和电脑登录同一个账号，看到的就是同一份稿子，会自动同步。' }));
         return out;
       },
     };
   };
+
   function getTheme() { return A.getTheme(); }
   function cloudLabel() {
     const c = String(MZ.CLOUD || '');
@@ -435,6 +550,8 @@
      省得「勾了三个到底谁写哪一章」还要跑去电脑上翻。 */
   const MODELS = ['doubao', 'mimo', 'deepseek'];
   const MODEL_LABEL = { doubao: '豆包', mimo: 'MiMo', deepseek: 'DeepSeek' };
+  /* 三个模型的品牌图标（在 api.js ICONS 里定义） */
+  const MODEL_ICON = { doubao: 'm_doubao', mimo: 'm_mimo', deepseek: 'm_deepseek' };
   const ROLE_LABEL = { plan: '策划', write: '写作', review: '审查', polish: '润色' };
   const ROLE_ORDER = ['plan', 'write', 'review', 'polish'];
   const INPUT_STYLE = {
@@ -673,18 +790,19 @@
   }
 
   /* ---- 小组件 ---- */
-  function swRow(title, sub, on, onTap) {
+  function swRow(title, sub, on, onTap, ico) {
     const row = h('div.li.tap', null,
+      ico ? h('div.li-ico', null, icon(ico, { size: 20 })) : null,
       h('div.li-main', null,
         h('div.li-title', { text: title }),
         sub ? h('div.li-sub', { text: sub }) : null),
-      h('div.li-right', null, h('span.sw' + (on ? '.on' : ''), null, h('i'))));
+      h('div.li-right', null, h('div.sw' + (on ? '.on' : ''), null, h('i'))));
     row.addEventListener('click', function () { haptic('light'); onTap(!on); });
     return row;
   }
-  function pickRow(title, sub, value, items, key, after) {
+  function pickRow(title, sub, value, items, key, after, ico) {
     return li({
-      title: title, sub: sub, right: h('span', { text: value }), arrow: true,
+      ico: ico, title: title, sub: sub, right: h('span', { text: value }), arrow: true,
       onTap: function () {
         const cur = String(settingsOf()[key] == null ? '' : settingsOf()[key]);
         MZ.actions(items.map(function (it) {
@@ -698,6 +816,49 @@
   }
   function field(label, el) {
     return h('div.fld', null, h('label', { text: label }), el);
+  }
+
+  /* ---- 自动更新（每日定时补更）----
+     服务端存的是 auto_enabled 字符串 '0' / '1'；'0' 在 JS 里是真值，
+     所以不能直接写 settings.auto_enabled ? ...（那样永远显示「已开启」）。 */
+  function autoOn(settings) {
+    const v = (settings || {}).auto_enabled;
+    return v === true || v === 1 || String(v) === '1';
+  }
+  function autoSheet() {
+    let on = autoOn(settingsOf());
+    let timeInput = null;
+    const sb = sheet({
+      title: '自动更新',
+      build: function (b) {
+        b.appendChild(h('div.fld-hint', { text: '开启后，每天到你定好的时间，服务器会替你把没更完的章节补上；手机不用开着。' }));
+        let row = null;
+        row = swRow('每天自动更新', on ? '已开启' : '当前关闭', on, function (v) {
+          on = v;
+          const sw = row.querySelector('.sw');
+          if (sw) sw.classList.toggle('on', on);
+          const sub = row.querySelector('.li-sub');
+          if (sub) sub.textContent = on ? '已开启' : '当前关闭';
+          if (timeInput) timeInput.disabled = !on;
+        }, 'bell');
+        const l = h('div.list');
+        l.appendChild(row);
+        b.appendChild(l);
+        timeInput = h('input.inp', { type: 'time', value: String(settingsOf().auto_time || '08:00').slice(0, 5), step: '300' });
+        timeInput.disabled = !on;
+        b.appendChild(field('每天几点开始（服务器时间）', timeInput));
+        b.appendChild(buttons([{
+          label: '保存', tone: 'primary',
+          onTap: function () {
+            const t = String(timeInput.value || '08:00').slice(0, 5);
+            if (!/^\d{2}:\d{2}$/.test(t)) { toast('时间格式不对，应该是 08:00 这样', 'bad'); return; }
+            putSettings({ auto_enabled: on ? '1' : '0', auto_time: t },
+              on ? ('已开启：每天 ' + t + ' 自动写') : '已关闭自动更新')
+              .then(function (ok) { if (ok) { sb.close(); A.render(); } });
+          },
+        }]));
+      },
+    });
   }
 
   function strategyWord(s) {
@@ -726,7 +887,7 @@
     const has = hasKey(s, k);
     const info = ((A.state.hero && A.state.hero.providers) || {})[k] || {};
     const row = h('div.li.tap', null,
-      h('div.li-ico', null, icon('spark', { size: 20 })),
+      h('div.li-ico.mk.mk-' + k, null, icon(MODEL_ICON[k] || 'spark', { size: 20 })),
       h('div.li-main', null,
         h('div.li-title', { text: mLabel(k) }),
         h('div.li-sub', { text: has ? (info.model || '已配置') : '还没填 API Key' })),
