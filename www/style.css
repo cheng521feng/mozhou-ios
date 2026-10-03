@@ -214,6 +214,10 @@ pre { padding: 10px 12px; overflow: auto; line-height: 1.55; }
 .g2.g3 { grid-template-columns: repeat(3, 1fr); }
 .row { display: flex; align-items: center; gap: 10px; }
 .row.wrap { flex-wrap: wrap; }
+/* 行里的「推到右边」占位块。以前只有 .card-head / .section-title / .sheet-head
+   给过 margin-left:auto，写作台与阅读器的「字号 / 行距」两行用的是 .row，
+   于是空占位没有宽度，数值胶囊紧贴在按钮后面、右边空一大片，看着不齐。 */
+.row > .sp { flex: 1; }
 .spacer { flex: 1 1 auto; }
 
 /* ============================== 布局 ============================== */
@@ -661,6 +665,13 @@ button.chip.pick:active { transform: scale(.94); }
   border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   padding: 8px 12px calc(12px + var(--safe-b));
   animation: sheetUp .3s var(--spring);
+  /* 动作列表可以很长（写作台的「更多」有二十来项）。不封顶的话整张列表会从屏幕
+     顶上顶出去：顶上那十几项既看不见、也滑不到，只能点到露在屏幕里的末尾几项。
+     封顶之后由列表自己滚。100dvh 是「当前看得见的那块高度」，比 100vh 稳 ——
+     iOS 上 100vh 会把地址栏也算进去。 */
+  max-height: calc(100vh - 56px);
+  max-height: calc(100dvh - 56px);
+  overflow: hidden auto;
 }
 .as-title { padding: 14px 10px 8px; font-size: 13px; color: var(--muted); text-align: center; }
 .as-group { display: flex; flex-direction: column; background: var(--surface-group); border-radius: 14px; overflow: hidden; }
