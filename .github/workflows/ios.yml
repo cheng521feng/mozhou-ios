@@ -1,4 +1,4 @@
-name: 打包 iPad App (.ipa)
+name: 打包 iOS App (.ipa)
 
 # 用法：仓库里点 Actions -> 左边选「打包 iOS App (.ipa)」-> Run workflow
 on:
@@ -12,6 +12,14 @@ on:
         description: "App 唯一标识，装不上就换一个（例如 com.你的名字.mozhou）"
         required: true
         default: "com.mozhou.writer"
+      device_family:
+        description: "装到哪种机器：1,2=通用（iPhone+iPad，默认）；1=只给 iPhone；2=只给 iPad"
+        required: true
+        default: "1,2"
+      artifact_name:
+        description: "GitHub 上这次产物的名字"
+        required: true
+        default: "MoZhou-unsigned-ipa"
 
 jobs:
   build:
@@ -179,7 +187,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
-            TARGETED_DEVICE_FAMILY=1,2 \
+            TARGETED_DEVICE_FAMILY=${{ inputs.device_family }} \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -202,7 +210,7 @@ jobs:
       - name: 上传 .ipa（在页面下面的 Artifacts 里下载）
         uses: actions/upload-artifact@v4
         with:
-          name: MoZhou-unsigned-ipa
+          name: ${{ inputs.artifact_name }}
           path: MoZhou-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
