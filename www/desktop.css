@@ -1,0 +1,314 @@
+/* ==========================================================================
+   墨舟 · 电脑端界面   desktop.css
+
+   融合版：**视觉照手机**（style.css 那套字体 / 圆角 / 配色 / 卡片 / 阴影 /
+   动效曲线，一行不改），**排版用电脑**（左侧竖栏 + 按屏分栏 + 居中对话框）。
+
+     · 左侧竖栏导航（图标 + 文字），顶栏还是手机那套大标题 + 工具行
+     · 书架   = 今日进度 + 统计一行，工具条吸顶，封面网格铺满
+     · 写作   = 左「今日进度 + 补更」/ 右「章节列表」
+     · 作品页 = 左「书卡 + 全部操作」/ 右「前情摘要 + 章节」
+     · 任务   = 左「正在跑」/ 右「最近任务」
+     · 我的   = 两列卡片流
+     · 抽屉 / 弹窗收成屏幕正中的对话框
+     · 鼠标专属：hover 浮起、悬停露出「⋯」、滚轮横滑、细滚动条、焦点环
+
+   只在窗口 >= 900px 生效；窄窗口自动回落手机那套，不改一行 JS。
+   手机端 www/ 与 ipa 里都没有本文件，一行都不受影响。
+   ========================================================================== */
+
+/* 左栏品牌块只在电脑端那份 main.html 里；窄窗口不显示 */
+.sb-brand { display: none; }
+
+@media (min-width: 900px) {
+
+  /* ============================== 1. 外壳 ============================== */
+  html, body { overflow: hidden; }
+
+  .app {
+    display: grid;
+    grid-template-columns: 216px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "rail nav" "rail main";
+    height: 100vh; height: 100dvh;
+    padding-bottom: 0;
+  }
+  /* 沉浸写作时左栏整条撤掉，正文占满（不然会空出 216px 一条） */
+  body.ed-immersive .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "nav" "main";
+  }
+
+  /* ---------- 左侧栏：手机底部那条标签栏横过来 ---------- */
+  .tabbar {
+    grid-area: rail;
+    /* 手机那套是 fixed + z-index:50；这里回到普通网格项，z-index 不降下来会盖住左下角「桌面版」入口 */
+    position: relative; z-index: auto; left: auto; right: auto; bottom: auto;
+    height: auto; padding: 14px 12px 74px;
+    display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+    gap: 3px;
+    background: var(--tab-bg);
+    -webkit-backdrop-filter: saturate(160%) blur(16px);
+    backdrop-filter: saturate(160%) blur(16px);
+    border-top: 0; border-right: 1px solid var(--line-soft);
+  }
+  .sb-brand { display: flex; align-items: center; gap: 9px; padding: 2px 10px 16px; }
+  .sb-brand .sb-mark {
+    width: 26px; height: 26px; flex: 0 0 auto; border-radius: 9px;
+    background: linear-gradient(150deg, var(--accent) 0%, #1e7fb6 130%);
+    box-shadow: 0 3px 10px -4px color-mix(in srgb, var(--accent) 80%, transparent);
+  }
+  .sb-brand b { font-size: 15px; font-weight: 660; letter-spacing: -.2px; white-space: nowrap; }
+
+  /* 手机那套是「图标在上文字在下」，竖栏里改成一行一个（排版是电脑的，配色动效还是手机的） */
+  .tab {
+    flex: 0 0 auto; flex-direction: row; align-items: center; justify-content: flex-start;
+    gap: 11px; height: 42px; padding: 0 12px; border-radius: 11px;
+    color: var(--dim); font-size: 14.5px;
+  }
+  .tab .tb-ico { height: 22px; }
+  .tab .tb-ico svg { width: 22px; height: 22px; }
+  .tab b { font-size: 14.5px; font-weight: 540; letter-spacing: 0; }
+  .tab:hover { background: var(--press); color: var(--text); }
+  .tab.on { background: var(--accent-soft); color: var(--accent); }
+  .tab.on b { font-weight: 640; }
+  .tab:active .tb-ico { transform: scale(.92); }
+  .tab .tbadge { position: static; margin-left: auto; }
+
+  /* 左栏最下面：回老电脑版的入口 */
+  .pc-link {
+    display: block; position: fixed; left: 12px; bottom: 14px; z-index: 45;
+    width: 192px; padding: 9px 0; text-align: center; opacity: 1;
+    border-radius: 11px; font-size: 12.5px; font-weight: 600; text-decoration: none;
+    background: transparent; color: var(--muted); border: 1px solid var(--line);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  .pc-link:hover { background: var(--press); color: var(--text); }
+
+  /* ---------- 顶栏：还是手机那套（大标题 + 44px 工具行），左右留白跟正文对齐 ---------- */
+  .navbar { grid-area: nav; position: sticky; top: 0; z-index: 40; padding-top: 0; }
+  .nb-row, .nb-large {
+    max-width: 1200px; margin-left: auto; margin-right: auto;
+    padding-left: 24px; padding-right: 24px;
+  }
+  .nb-row { height: var(--nav-h); padding-top: 0; padding-bottom: 0; }
+  .nb-action:hover { background: var(--accent-soft); }
+  .islanddock { margin: 4px 24px 6px; max-width: 640px; }
+
+  /* ---------- 正文区 ---------- */
+  .main {
+    grid-area: main; overflow-y: auto; overflow-x: hidden;
+    padding-bottom: 44px;
+  }
+  .pad { width: 100%; max-width: 1200px; margin: 0 auto; padding: 8px 24px 0; }
+
+  /* ============================== 2. 通用手感 ============================== */
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--muted) 30%, transparent);
+    border: 3px solid transparent; border-radius: 99px; background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--muted) 52%, transparent); background-clip: content-box;
+  }
+  /* 手机上是把横滑条藏起来的（手指划就够了）；电脑没有手指，得给一条看得见的 */
+  .pick-strip::-webkit-scrollbar, .chips::-webkit-scrollbar { display: block; height: 8px; }
+  .pick-strip::-webkit-scrollbar-track, .chips::-webkit-scrollbar-track { background: transparent; }
+  .pick-strip::-webkit-scrollbar-thumb, .chips::-webkit-scrollbar-thumb {
+    background: var(--line); border: 0; border-radius: 99px; background-clip: padding-box;
+  }
+  .pick-strip::-webkit-scrollbar-thumb:hover, .chips::-webkit-scrollbar-thumb:hover {
+    background: var(--muted); background-clip: padding-box;
+  }
+
+  /* 列表行：鼠标扫过去要有反应（手机是靠按下时那一下） */
+  .li { padding-left: 10px; padding-right: 10px; margin-left: -10px; margin-right: -10px; border-radius: 12px; }
+  .li:hover { background: var(--press); }
+  .li-title { font-size: 15px; }
+  .card.tap:hover { background: var(--press); }
+
+  /* 按钮 / 胶囊 / 分段：能点的地方都给 hover */
+  .btn { cursor: pointer; }
+  .btn:not(:disabled):hover { background: color-mix(in srgb, var(--text) 5%, var(--panel2)); }
+  .btn.primary:not(:disabled):hover { background: color-mix(in srgb, #fff 9%, var(--accent)); }
+  .btn.blue:not(:disabled):hover { background: color-mix(in srgb, #fff 11%, var(--blue)); }
+  .btn.danger:not(:disabled):hover { background: color-mix(in srgb, var(--red) 9%, transparent); }
+  .bh-btn { cursor: pointer; }
+  .bh-btn:not(.primary):hover { background: color-mix(in srgb, var(--muted) 16%, transparent); }
+  .chip.pick { cursor: pointer; }
+  .chip.pick:hover { background: color-mix(in srgb, var(--muted) 16%, transparent); }
+  .seg { width: fit-content; max-width: 100%; }
+  .seg button { flex: 0 1 auto; cursor: pointer; }
+  .seg button:not(.on):hover { color: var(--text); }
+  /* 按钮排：手机上铺满好点，电脑上别拉成一米宽 */
+  .btn-row { max-width: 720px; }
+  .btn-row .btn:only-child { max-width: 420px; }
+  :focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 62%, transparent); outline-offset: 2px; }
+
+  /* ============================== 3. 书架 ============================== */
+  /* 书架屏的容器是 render() 里那个裸 div（没有 .pad），所以这里按结构认它。
+     第一行左边「今日进度 + 补更」、右边「共几本 + 整理」，工具条单独一行吸顶。 */
+  div:has(> .books-grid) {
+    width: 100%; max-width: 1200px; margin: 0 auto;
+    padding: 20px 24px 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+  div:has(> .books-grid) > .today-strip { grid-column: 1; max-width: 640px; padding: 0 0 17px; }
+  div:has(> .books-grid) > .today-strip .ts-num { font-size: 28px; }
+  div:has(> .books-grid) > .today-strip .ts-bar { max-width: 460px; }
+  div:has(> .books-grid) > .books-head {
+    grid-column: 2; justify-self: end; position: static;
+    padding: 0 0 17px; background: transparent; border-bottom: 0;
+  }
+  div:has(> .books-grid) > .books-head .bh-stat { flex: 0 0 auto; }
+  div:has(> .books-grid) > .bk-tools {
+    grid-column: 1 / -1; position: sticky; top: 0; z-index: 12;
+    flex-direction: row; align-items: center; gap: 14px;
+    padding: 11px 0; margin: 0; background: var(--bg);
+    border-top: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  div:has(> .books-grid) > .bk-tools .bk-search { flex: 0 1 340px; }
+  div:has(> .books-grid) > .bk-tools .bk-sort { flex: 0 0 auto; }
+  div:has(> .books-grid) > .bk-tools .bk-filter { flex: 1 1 auto; justify-content: flex-end; }
+  div:has(> .books-grid) > .books-grid {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+    gap: 30px 24px; padding: 26px 0 0;
+  }
+  div:has(> .books-grid) > .footnote { grid-column: 1 / -1; margin: 30px 0 0; }
+
+  .book { cursor: pointer; }
+  .book:hover { transform: translateY(-3px); }
+  .book:hover .cover { box-shadow: 0 16px 32px -18px rgba(0, 0, 0, .5); }
+  .book:active { transform: translateY(-1px) scale(.985); }
+  .book .bk-title { font-size: 14px; }
+  .book .bk-dot {
+    animation: none;                      /* 别跟着「在跑的呼吸点」一起闪 */
+    opacity: .34; transform: scale(.94);
+    transition: opacity .15s ease, transform .16s var(--ease);
+  }
+  .book:hover .bk-dot, .book:focus-within .bk-dot { opacity: 1; transform: none; }
+  .book .bk-dot:hover { background: rgba(12, 12, 14, .72); }
+
+  /* ============================== 4. 写作 ============================== */
+  /* 左「今日进度卡」浮动在左侧，右「章节标题 / 搜索 / 章节列表」整体让开 402px（=372+30）。
+     用浮动而不是网格：右栏的高度不被左边那张卡牵着走，中间不会多出一段空档。 */
+  .pad:has(> .pick-strip) { display: flow-root; }
+  .pad:has(> .pick-strip) > .pick-hint { margin: 6px 0 10px; }
+  .pad:has(> .pick-strip) > .pick-strip { margin-bottom: 6px; }
+  .pad:has(> .pick-strip) > .card { float: left; width: 372px; margin: 4px 30px 18px 0; }
+  .pad:has(> .pick-strip):has(> .card) > :not(.pick-hint):not(.pick-strip):not(.card) {
+    margin-left: 402px;
+  }
+  .pad:has(> .pick-strip) > .section-title { margin-top: 8px; }
+  /* 搜索框必须是块级：行内块会掉到浮动下面去 */
+  .pad:has(> .pick-strip) > input.inp { display: block; max-width: 460px; margin-top: 6px; }
+
+  .pick-strip { align-items: flex-start; }
+  .pick-strip.slim .pick-card { width: 150px; max-width: 150px; }
+  .pick-strip .pick-name {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; min-height: 2.7em;
+  }
+  .pick-strip .pick-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pick-card { cursor: pointer; }
+  .pick-card:hover .pick-cover { box-shadow: 0 12px 26px -14px rgba(0, 0, 0, .48); }
+
+  /* ============================== 5. 作品页 ============================== */
+  /* 左「书卡 + 全部操作」，右「前情摘要 + 章节」 */
+  .pad:has(> .bk-head) {
+    display: grid; grid-template-columns: 348px minmax(0, 1fr);
+    gap: 22px 30px; align-items: start;
+  }
+  .pad:has(> .bk-head) > *:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .pad:has(> .bk-head) > *:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .pad:has(> .bk-head) > *:nth-child(3) { grid-column: 2; grid-row: 1; }
+  .pad:has(> .bk-head) > *:nth-child(4) { grid-column: 2; grid-row: 2; }
+  .bk-head {
+    flex-direction: column; gap: 14px;
+    background: var(--panel); border-radius: var(--r-card);
+    padding: 18px; box-shadow: var(--sh-1);
+  }
+  .bk-head .cover { width: 132px; flex: 0 0 auto; }
+  .bk-head .bk-title { font-size: 19px; }
+  .bk-head > div { flex: 0 0 auto; }
+
+  /* ============================== 6. 任务页 ============================== */
+  .pad:has(> .jobs-hero) {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px);
+    gap: 26px; align-items: start;
+  }
+  .pad:has(> .jobs-hero) > .jobs-hero { grid-column: 1; }
+  .pad:has(> .jobs-hero) > .jobs-list { grid-column: 2; }
+
+  /* ============================== 7. 我的 ============================== */
+  .pad:has(.list.models) {
+    display: flex; flex-wrap: wrap; gap: 20px 24px; align-items: flex-start;
+  }
+  .pad:has(.list.models) > .card { flex: 1 1 440px; min-width: 360px; margin-top: 0; }
+  .pad:has(.list.models) > .section-title,
+  .pad:has(.list.models) > .footnote,
+  .pad:has(.list.models) > .mt12 { flex: 1 1 100%; }
+  .pad:has(.list.models) > .section-title { margin: 6px 0 0; }
+
+  /* ============================== 8. 抽屉 / 弹窗 ============================== */
+  /* 手机是「从底部升起的整条」；1440px 的窗口里会变成一条横贯全屏的板子，收成居中对话框 */
+  .mask { align-items: center; justify-content: center; padding: 26px; }
+  .sheet, .actionsheet {
+    width: min(620px, 100%); max-height: min(86vh, 860px);
+    border: 1px solid var(--line-up); border-top: 1px solid var(--line-up);
+    border-radius: var(--r-sheet);
+    box-shadow: var(--sh-3);
+    animation: deskPop .22s var(--ease);
+  }
+  .sheet { padding: 0 24px 24px; }
+  .actionsheet { width: min(420px, 100%); padding: 10px 14px 16px; }
+  .sheet-head { padding: 14px 0; }
+  /* 抽屉顶上那根小横条是「往下拽」用的，居中对话框里没有可拽的东西 */
+  .sheet .grabber { display: none; }
+  /* 换书抽屉里是一条横滑书卡：给它宽一点，电脑上不用来回蹭 */
+  .sheet:has(.pick-strip) { width: min(780px, 100%); }
+  .modalbox { max-width: 440px; }
+  @keyframes deskPop {
+    from { transform: translateY(10px) scale(.985); opacity: .55; }
+    to { transform: none; opacity: 1; }
+  }
+
+  /* ============================== 9. 写作台 / 阅读器 ============================== */
+  /* 全屏铺开在 1440px 窗口里一行能拉到 1400px，眼睛来回扫得累：收一条窄栏，三段对齐同一条中线 */
+  .ed-wrap .ed-body, .ed-wrap .ed-toolbar {
+    width: 100%; max-width: 892px; margin-left: auto; margin-right: auto;
+  }
+  .ed-wrap .ed-nav .nb-row, .ed-wrap .ed-nav .ed-meta {
+    width: 100%; max-width: 892px; margin-left: auto; margin-right: auto;
+  }
+  .ed-wrap .ed-nav .nb-row { height: 56px; }
+  .ed-wrap .ed-nav .ed-meta { padding-left: 0; padding-right: 0; }
+  .ed-wrap .ed-find { width: auto; max-width: 860px; margin-left: auto; margin-right: auto; }
+  .ed-wrap .ed-nav .nb-title { position: static; opacity: 1; }
+
+  .rd-page { max-width: 760px; padding: 0 28px; }
+  .rd-top > .rd-row, .rd-bot > .rd-stat, .rd-bot > .rd-track, .rd-bot > .rd-tools {
+    width: 100%; max-width: 860px; margin-left: auto; margin-right: auto;
+  }
+  .rd-ic:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+  .rd-tool:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+  .rd-btn { cursor: pointer; }
+  .rd-btn:hover:not([disabled]) { background: color-mix(in srgb, currentColor 10%, transparent); }
+
+  /* ============================== 10. 任务条 / 吐司 / 登录 ============================== */
+  /* 任务条挂到右下角（写作台里 --dock-bottom 会把它抬到工具条上面） */
+  .opsdock {
+    left: auto; right: 24px; bottom: var(--dock-bottom, 20px);
+    width: 420px; max-width: calc(100% - 264px);
+  }
+  /* 吐司还是手机那样「底下居中」，只是居中在正文那一栏里 */
+  .toasts { left: 216px; right: 0; bottom: 22px; }
+  .toast { max-width: 420px; }
+
+  .login-card { max-width: 404px; }
+}
