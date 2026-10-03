@@ -100,7 +100,11 @@ window.MZEditor = (function () {
     if (n.cover_url) {
       const img = document.createElement('img');
       img.alt = ''; img.decoding = 'async'; img.loading = 'lazy';
-      img.src = n.cover_url;
+      /* 必须走 MZ.img()：封面地址是 /api/covers/...，取图要带会话口令。
+         装机版（iPhone / iPad）跑在 capacitor://localhost，裸相对路径既拼不对主机、
+         又没带 ?mz_sess=，两张卡就永远是空白 —— 书架那边一直用的是 MZ.img()，
+         写作台这一处漏了，用户的原话是「写作台没有封面」。 */
+      img.src = MZ.img(n.cover_url);
       img.addEventListener('error', function () {
         if (img.parentNode) img.parentNode.removeChild(img);
         cov.appendChild(h('span.pick-ph', { text: title.slice(0, 1) }));
