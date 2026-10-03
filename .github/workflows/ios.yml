@@ -143,10 +143,10 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string 墨舟需要访问你电脑上的写作服务" "$PLIST" || true
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 墨舟" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string 墨舟" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.9" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 2.9" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 19" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 19" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.9.11" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 2.9.11" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 20" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 20" "$PLIST"
           # 导出 txt：写完文件要能在「文件」App 里看到（我的 iPhone → 墨舟）
           /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" "$PLIST"
@@ -179,7 +179,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath build \
-            TARGETED_DEVICE_FAMILY=2 \
+            TARGETED_DEVICE_FAMILY=1,2 \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -202,7 +202,7 @@ jobs:
       - name: 上传 .ipa（在页面下面的 Artifacts 里下载）
         uses: actions/upload-artifact@v4
         with:
-          name: MoZhou-ipad-unsigned-ipa
+          name: MoZhou-unsigned-ipa
           path: MoZhou-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
