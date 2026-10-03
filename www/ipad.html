@@ -1,0 +1,272 @@
+<!-- 这个文件由 tools/make_ipad_html.py 从 main.html 生成，别直接改它：
+     改了下次生成会被覆盖 —— 要改就改 main.html 或那个生成脚本。
+     iPad 版 = 手机那套界面 + ipad.css（平板版式）+ ipad.js（外接键盘），没有桌面版的发布功能。 -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="墨舟" />
+<meta name="theme-color" content="#f2f1ee" />
+<meta name="color-scheme" content="light dark" />
+<!-- 首屏外观：在样式表生效前就把 html.light 打上，冷启动不会先闪一下 -->
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem('mz_theme');
+    var light = (t === 'light') || ((t !== 'dark') && window.matchMedia
+      && window.matchMedia('(prefers-color-scheme: light)').matches);
+    if (light) document.documentElement.classList.add('light');
+    var m = document.querySelector('meta[name=theme-color]');
+    if (m) m.setAttribute('content', light ? '#f2f1ee' : '#0c0d0f');
+    var s = document.querySelector('meta[name=color-scheme]');
+    if (s) s.setAttribute('content', light ? 'light' : 'dark');
+  } catch (e) { /* 忽略 */ }
+})();
+</script>
+<!-- 开屏看门狗：js/css 半路没加载全（别的软件抢了同一个端口、网卡抽风）时，
+     以前就是永久停在「正在连接…」；现在会自己摆一块「重新加载」出来，点一下重来。
+     只在「确实有资源加载失败」或「停了很久还没起来」时才出现，界面一旦正常起来就自动撤掉。 -->
+<script>
+(function () {
+  window.__mzFail = 0;
+  window.__mzT0 = Date.now();
+  var ORIG = '正在连接…';
+  var timer = 0;
+  window.addEventListener('error', function (e) {
+    var t = e && e.target;
+    if (!t || !t.tagName) return;
+    if (t.tagName === 'SCRIPT') { window.__mzFail++; return; }
+    if (t.tagName === 'LINK' && t.rel === 'stylesheet') window.__mzFail++;
+  }, true);
+  function splash() {
+    var s = document.getElementById('splash');
+    return (s && !s.classList.contains('gone')) ? s : null;
+  }
+  function clearBoard() {
+    var s = splash();
+    if (!s) return;
+    var b = s.querySelector('.sp-retry');
+    if (b && b.parentNode) b.parentNode.removeChild(b);
+    var m = document.getElementById('splashMsg');
+    if (m) m.textContent = ORIG;
+  }
+  function board(msg) {
+    if (window.__mzBooted) return;
+    var s = splash();
+    if (!s) return;
+    var m = document.getElementById('splashMsg');
+    if (m) m.textContent = msg;
+    if (s.querySelector('.sp-retry')) return;
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'sp-retry';
+    b.textContent = '重新加载';
+    b.style.cssText = 'margin-top:18px;padding:9px 24px;border:0;border-radius:999px;'
+      + 'background:var(--accent,#2f6bff);color:#fff;font:inherit;font-size:15px;cursor:pointer;';
+    b.addEventListener('click', function () { location.reload(); });
+    s.appendChild(b);
+  }
+  timer = setInterval(function () {
+    if (window.__mzBooted) { clearBoard(); clearInterval(timer); return; }
+    if (window.__mzFail) board('资源没加载全，点一下重新加载');
+    else if (Date.now() - window.__mzT0 > 20000) board('还在启动…一直停着就点一下重试');
+  }, 1000);
+})();
+</script>
+<meta name="format-detection" content="telephone=no,email=no,address=no" />
+<title>墨舟创作工坊 · iPad</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
+<link rel="icon" href="icons/icon-192.png" />
+<!-- iOS 冷启动画面：常用机型各一张，冷启动不再白屏 -->
+<link rel="apple-touch-startup-image" href="splash/1320x2868.png" media="(device-width:440px) and (device-height:956px) and (-webkit-device-pixel-ratio:3)" />
+<link rel="apple-touch-startup-image" href="splash/1290x2796.png" media="(device-width:430px) and (device-height:932px) and (-webkit-device-pixel-ratio:3)" />
+<link rel="apple-touch-startup-image" href="splash/1284x2778.png" media="(device-width:428px) and (device-height:926px) and (-webkit-device-pixel-ratio:3)" />
+<link rel="apple-touch-startup-image" href="splash/1260x2736.png" media="(device-width:420px) and (device-height:912px) and (-webkit-device-pixel-ratio:3)" />
+<link rel="apple-touch-startup-image" href="splash/1206x2622.png" media="(device-width:402px) and (device-height:874px) and (-webkit-device-pixel-ratio:3)" />
+<link rel="apple-touch-startup-image" href="splash/1179x2556.png" media="(device-width:393px) and (device-height:852px) and (-webkit-device-pixel-ratio:3)" />
+<link rel="apple-touch-startup-image" href="splash/1170x2532.png" media="(device-width:390px) and (device-height:844px) and (-webkit-device-pixel-ratio:3)" />
+<link rel="apple-touch-startup-image" href="splash/1125x2436.png" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3)" />
+<link rel="apple-touch-startup-image" href="splash/828x1792.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2)" />
+<link rel="apple-touch-startup-image" href="splash/750x1334.png" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2)" />
+<link rel="stylesheet" href="style.css?v=20261003ipad" />
+<link rel="stylesheet" href="fx.css?v=20261003ipad" />
+<link rel="stylesheet" href="ipad.css?v=20261003ipad" />
+</head>
+<body>
+<div class="topline" id="topline"></div>
+
+<!-- 未登录时的登录页（由 app.js 决定显示还是隐藏） -->
+<div class="login-wrap" id="loginWrap" hidden>
+  <div class="login-aurora" aria-hidden="true"></div>
+  <form class="login-card" id="loginForm" novalidate>
+    <div class="login-head">
+      <div class="login-logo" id="loginLogo"></div>
+      <h1>墨舟创作工坊</h1>
+      <p class="login-sub">登录后自动传书稿，换手机也不丢</p>
+    </div>
+    <div class="login-err" id="loginErr" hidden></div>
+    <div class="login-field">
+      <label for="lgUser">用户名</label>
+      <input id="lgUser" class="inp" name="user" type="text" autocapitalize="off" autocorrect="off"
+             autocomplete="username" spellcheck="false"
+             placeholder="用户名 / 手机号" enterkeyhint="next" />
+    </div>
+    <div class="login-field">
+      <label for="lgPass">密码<span class="hint">点右边眼睛可显示</span></label>
+      <div class="pw">
+        <input id="lgPass" class="inp" name="password" type="password" autocomplete="current-password"
+               placeholder="登录密码" enterkeyhint="go" />
+        <button type="button" class="eye" id="lgEye" aria-label="显示密码" title="显示密码"></button>
+      </div>
+    </div>
+    <button class="btn primary login-go" type="submit" id="loginGo">登录并同步</button>
+    <div class="login-or"><span>还没有账号 / 忘了密码</span></div>
+    <div class="login-links">
+      <button class="btn ghost reg-link" type="button" id="loginReg">用手机号注册</button>
+      <i class="login-sep" aria-hidden="true"></i>
+      <button class="btn ghost reg-link" type="button" id="loginForgot">忘记密码</button>
+    </div>
+    <div class="footnote txt-c">书稿按账号独立存，手机和电脑登录同一账号即同一份稿子。</div>
+  </form>
+</div>
+
+<div class="app" id="app" hidden>
+  <header class="navbar" id="navbar">
+    <!-- 灵动岛停靠条：有任务在跑时挂在顶上，点它去任务页 -->
+    <button type="button" class="islanddock" id="islandDock" hidden>
+      <span class="id-dot"></span>
+      <span class="id-title" id="idTitle"></span>
+      <span class="id-sub" id="idSub"></span>
+      <span class="id-pct" id="idPct"></span>
+      <span class="id-track"><i id="idFill"></i></span>
+    </button>
+    <div class="nb-row">
+      <button class="nb-back" id="navBack" hidden aria-label="返回"><span>&#8249;</span></button>
+      <div class="nb-title" id="navInline">书架</div>
+      <button class="nb-action" id="navAction" hidden></button>
+    </div>
+    <h1 class="nb-large" id="navLarge">书架</h1>
+  </header>
+
+  <main class="main" id="main" role="main"></main>
+
+  <nav class="tabbar" id="tabbar">
+  <!-- 电脑端左侧栏的品牌块（desktop.css 里窄窗口隐藏；手机端 www/ 没有这个文件） -->
+  <div class="sb-brand" aria-hidden="true"><i class="sb-mark"></i><b>墨舟创作工坊</b></div>
+    <button class="tab on" data-tab="books"><span class="tb-ico" data-ico="books"></span><b>书架</b></button>
+    <button class="tab" data-tab="write"><span class="tb-ico" data-ico="write"></span><b>写作</b></button>
+    <button class="tab" data-tab="jobs"><span class="tb-ico" data-ico="jobs"></span><b>任务</b><span class="tbadge" id="badgeJobs" hidden></span></button>
+    <button class="tab" data-tab="me"><span class="tb-ico" data-ico="me"></span><b>我的</b></button>
+  </nav>
+</div>
+
+<!-- 全局任务条：所有长操作（三模型评分 / 按建议重写 / 章节检查 / 续写补更）
+     的实时进度都画在这里。它是 body 级的 fixed 元素，切页、关写作台、重开 App 都不丢。 -->
+<div class="opsdock" id="opsDock" hidden>
+  <button class="od-top" type="button" id="odTop">
+    <span class="live-dot"></span>
+    <span class="od-title" id="odTitle">正在跑</span>
+    <span class="od-sub" id="odSub"></span>
+    <span class="od-pct" id="odPct">0%</span>
+    <span class="od-chev">&#8964;</span>
+  </button>
+  <div class="od-track"><i id="odFill"></i></div>
+  <div class="od-body" id="odBody" hidden></div>
+</div>
+
+<div class="mask hidden" id="maskSheet"><div class="sheet" id="sheetBox"></div></div>
+<div class="mask hidden" id="maskActions"><div class="actionsheet" id="actionsBox"></div></div>
+<div class="mask hidden modal-mask" id="maskModal"><div class="modalbox" id="modalBox"></div></div>
+<div class="toasts" id="toasts"></div>
+
+<div class="splash" id="splash">
+  <div class="login-logo" id="splashLogo"></div>
+  <b>墨舟创作工坊</b>
+  <i id="splashMsg">正在连接…</i>
+</div>
+
+<!-- 开屏欢迎页：登录成功后先露一下脸（头像 + 名字 + 一句欢迎），点一下或几秒后自动进主页 -->
+<div class="welcome" id="welcome" hidden>
+  <div class="wc-card">
+    <div class="wc-av" id="wcAv"></div>
+    <div class="wc-hi" id="wcHi">欢迎回来</div>
+    <div class="wc-name" id="wcName"></div>
+    <div class="wc-line"></div>
+    <div class="wc-sub" id="wcSub">正在载入你的书稿…</div>
+  </div>
+  <div class="wc-tip">点一下直接进入</div>
+</div>
+
+<!-- iPad 装机版：接口走云端入口（api.js 里那三个），不连本机服务。
+     MZ_NO_401_REDIRECT=1：401 时交给界面弹登录卡，别跳 index.html（跳了会把刚填的表单冲掉）。 -->
+<script>window.MZ_NO_401_REDIRECT = 1;</script>
+<script src="api.js?v=20261003ipad"></script>
+<script src="app.js?v=20261003ipad"></script>
+<script src="pages.js?v=20261003ipad"></script>
+<script src="editor.js?v=20261003ipad"></script>
+<script src="book.js?v=20261003ipad"></script>
+<script src="reader.js?v=20261003ipad"></script>
+<script src="ipad.js?v=20261003ipad"></script>
+
+<!-- 接上触控板 / 鼠标时：把滚轮接到横滑条上（选书条 / 筛选条都算）。手指左右滑本来就能划。 -->
+<script>
+(function () {
+  if (!window.MZ_NO_401_REDIRECT) return;
+  function hbox(el) {
+    while (el && el.nodeType === 1 && el !== document.body) {
+      var st = getComputedStyle(el);
+      if ((st.overflowX === 'auto' || st.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 2) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+  document.addEventListener('wheel', function (e) {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;   /* 本来就是横向的，别插手 */
+    var el = hbox(e.target);
+    if (!el) return;
+    el.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
+})();
+</script>
+
+
+<!-- 外接键盘的 Alt+1~4 切页（⌘1~4 在 ipad.js 里）。没有外接键盘时这段完全不影响触屏。 -->
+<script>
+(function () {
+  if (!window.MZ_NO_401_REDIRECT) return;          /* 只在电脑端那份生效 */
+  var ORDER = ['books', 'write', 'jobs', 'me'];
+
+  function openLayer() {
+    /* 从最上面那一层开始关：模态 → 动作菜单 → 抽屉 */
+    var ids = ['maskModal', 'maskActions', 'maskSheet'];
+    for (var i = 0; i < ids.length; i++) {
+      var m = document.getElementById(ids[i]);
+      if (m && !m.classList.contains('hidden')) return m;
+    }
+    return null;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      var m = openLayer();
+      if (m) { m.click(); e.preventDefault(); }
+      return;
+    }
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    var n = parseInt(e.key, 10);
+    if (!(n >= 1 && n <= ORDER.length)) return;
+    var tab = ORDER[n - 1];
+    var btn = document.querySelector('.tab[data-tab="' + tab + '"]');
+    if (btn) { btn.click(); e.preventDefault(); }
+  });
+})();
+</script>
+
+</body>
+</html>
