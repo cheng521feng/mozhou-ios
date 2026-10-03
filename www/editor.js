@@ -127,6 +127,12 @@ window.MZEditor = (function () {
     return {
       title: '写作',
       action: null,
+      /* 切完书这一屏会整块重建，横向那条选书卡也回到初始位置 —— 选中的那张可能被甩到
+         屏幕外，看着就像「点了没切换」。这里把它滚回眼前（只动这一条的横向，不动整页）。 */
+      after(body) {
+        const on = body.querySelector('.pick-strip .pick-card.on');
+        if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'center' });
+      },
       async mount(body) {
         await A.ensureHero();
         const out = h('div.pad');
