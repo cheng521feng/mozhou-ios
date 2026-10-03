@@ -46,6 +46,9 @@ window.MZApp = (function () {
   function span(text, cls) { return h('span' + (cls ? '.' + cls : ''), { text: text }); }
   function txt(v, dft) { return (v === null || v === undefined || v === '') ? (dft === undefined ? '—' : dft) : String(v); }
 
+  /* 书名要拼进正则（任务条上「本地占位」和「服务端那条」靠它去重），先转义更稳 */
+  function reEsc(v) { return String(v == null ? '' : v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
   function li(opt) {
     const row = h('div.li' + (opt.onTap ? '.tap' : ''), null,
       opt.ico ? h('div.li-ico', null, typeof opt.ico === 'string' && MZ.ICONS[opt.ico] ? icon(opt.ico, { size: 20 }) : h('span', { text: opt.ico })) : null,
@@ -387,7 +390,7 @@ window.MZApp = (function () {
         h('div', null, barOf(pct, live.running ? '' : 'ok')),
         h('div.live-nums.mt8', null,
           h('span', { text: (live.done || 0) + ' / ' + (live.total || 0) + ' 章' }),
-          live.elapsed ? h('span', { text: '已用时 ' + fmtDur(live.elapsed) }) : null,
+          h('span.lh-elapsed', live.elapsed ? { text: '已用时 ' + fmtDur(live.elapsed) } : { hidden: true }),
           live.chars ? h('span', { text: fmtWords(live.chars) }) : null))));
     const q = queueNode(live);
     if (q) box.appendChild(q);
@@ -455,21 +458,31 @@ window.MZApp = (function () {
       if (!c.classList || !c.classList.contains('pull')) main.removeChild(c);
     });
   }
-  async function render() {
+  /* opts.keepScroll：原样刷新（轮询 / 操作收尾）时保持用户当前看到的位置。
+     以前轮询和「开始写」的收尾都直接 render()：main.scrollTop 归零 + 整屏骨架闪一下，
+     用户的原话就是「老是自动刷新，有种跳感」。现在这种刷新先在离屏把新内容建好，
+     最后一次性换上去：中途高度不会塔，滚动位置也不会被浏览器夹回页首。 */
+  async function render(opts) {
+    opts = opts || {};
     const main = $('#main');
     if (!main) return;
     const s = state.stack.length ? state.stack[state.stack.length - 1] : (screens[state.tab] && screens[state.tab]());
     if (!s) return;
+    const keep = opts.keepScroll ? main.scrollTop : 0;
     applyNav(s);
     const anim = state.anim || '';
     state.anim = '';
-    clearMain();
     const body = h('div');
     if (anim) body.classList.add('screen-' + anim);
-    main.appendChild(body);
+    if (!keep) {
+      clearMain();
+      main.appendChild(body);
+    }
     body.appendChild(skeleton(3));
-    main.scrollTop = 0;
+    if (!keep) main.scrollTop = 0;
     topline(true);
+    /* 每一屏重画之前先作废上个任务页的「原地刷新器」；只有任务页的 mount 会重新挂上。 */
+    state.jobsView = null;
     try {
       const node = await s.mount(body);
       clear(body);
@@ -483,6 +496,13 @@ window.MZApp = (function () {
       if (e && e.code === 401) showLogin(e);
     }
     topline(false);
+    if (keep) {
+      clearMain();
+      main.appendChild(body);
+      main.scrollTop = keep;
+      /* 列表/封面高度还在长，下一帧再兜一次 */
+      requestAnimationFrame(function () { main.scrollTop = keep; });
+    }
     if (s.after) s.after(body);
   }
   function go(tab) {
@@ -1025,18 +1045,31 @@ window.MZApp = (function () {
   }
 
   /* ============================== 动作 ============================== */
+  /* 长操作统一入口：补更 / 重写 / 体检 / 今日更新。
+     以前这里有两个毛病，用户的原话是「写文章总是没开始写」「开始写的时候
+     总是自动刷新，有种跳感」：
+       1) 只等服务器回话，手指到反馈之间是一段空窗 —— 现在跟写作台里的长操作
+          一样，手指一落先在本地登记一条任务条占位（服务器那条露面后自动接棒）；
+       2) 收尾无条件 render()，整屏重画 + 滚动归零 —— 现在只重画任务条，当前这一屏
+          不动，滚动位置自然也就不会被甩回页首。 */
   async function startJob(path, okMsg, body, opts) {
     opts = opts || {};
+    const token = pending(opts.op || okMsg || '正在跑', { match: opts.match });
     try {
       const res = await api.post(path, body || {}, opts.timeout ? { timeout: opts.timeout } : undefined);
       toast((res && res.msg) || okMsg || '已开始', 'ok');
       haptic('success');
       await refreshLive();
-      if (!opts.silent) await loadHero().catch(function () { });
-      if (state.tab === 'jobs' || state.tab === 'overview' || state.tab === 'books') render();
-      else render();
+      pendingDone(token);
+      if (!opts.silent) loadHero().catch(function () { });
+      if (opts.repaint) opts.repaint();
+      else if (state.tab === 'jobs') render({ keepScroll: true });
       return res;
-    } catch (e) { toast(e.message, 'bad'); return null; }
+    } catch (e) {
+      pendingDrop(token);
+      toast(e.message, 'bad');
+      return null;
+    }
   }
   function askUpdate(n) {
     const need = planNeed(n);
@@ -1047,7 +1080,11 @@ window.MZApp = (function () {
     }).then(function (v) {
       if (v === null) return;
       const c = parseInt(v, 10);
-      startJob('/api/novel/' + n.id + '/update', '已开始补更，正在写作', { count: isFinite(c) && c > 0 ? c : undefined });
+      const cnt = isFinite(c) && c > 0 ? c : (need || 1);
+      const book = n.title || '';
+      startJob('/api/novel/' + n.id + '/update', '已开始补更，正在写作',
+        { count: isFinite(c) && c > 0 ? c : undefined },
+        { op: '补更《' + book + '》' + cnt + ' 章', match: '^补更《' + reEsc(book) + '》' });
     });
   }
   function askRewrite(n) {
@@ -1057,14 +1094,19 @@ window.MZApp = (function () {
       input: 'number', value: 5, okText: '开始重写', danger: true,
     }).then(function (v) {
       if (v === null) return;
-      startJob('/api/novel/' + n.id + '/rewrite', '已开始重写', { count: parseInt(v, 10) || 5 });
+      const cnt = parseInt(v, 10) || 5;
+      const book = n.title || '';
+      startJob('/api/novel/' + n.id + '/rewrite', '已开始重写', { count: cnt },
+        { op: '重写《' + book + '》' + cnt + ' 章', match: '^重写《' + reEsc(book) + '》' });
     });
   }
   async function bookHitReview(n) {
     const ok = await confirm('对《' + (n.title || '') + '》做全书爆款体检？会按抽样方式让多个模型评分，耗时较长。',
       { okText: '开始体检' });
     if (!ok) return;
-    startJob('/api/novel/' + n.id + '/hit_review', '体检完成', { scope: 'sample' }, { timeout: 300000 });
+    const book = n.title || '';
+    startJob('/api/novel/' + n.id + '/hit_review', '体检完成', { scope: 'sample' },
+      { timeout: 300000, op: '爆款质检《' + book + '》', match: '^爆款质检《' + reEsc(book) + '》' });
   }
   async function exportNovel(n) {
     toast('正在导出…');
@@ -1284,7 +1326,8 @@ window.MZApp = (function () {
   async function runDaily() {
     const ok = await confirm('立刻执行一次「今日自动更新」？会给所有启用的作品按每日章数补更，耗时可能很长。', { okText: '开始' });
     if (!ok) return;
-    startJob('/api/run_daily', '已开始今日自动更新', {}, { timeout: 120000 });
+    startJob('/api/run_daily', '已开始今日自动更新', {},
+      { timeout: 120000, op: '今日自动更新', match: '^补更《' });
   }
   async function stopAll() {
     const ok = await confirm('停止全部任务？当前这一章写完后就会停下，已写好的会保留。', { danger: true, okText: '停止全部' });
@@ -1293,7 +1336,7 @@ window.MZApp = (function () {
       const r = await api.post('/api/stop_all');
       toast((r && r.msg) || '已请求停止', 'ok');
       await refreshLive();
-      render();
+      render({ keepScroll: true });
     } catch (e) { toast(e.message, 'bad'); }
   }
 
@@ -1358,6 +1401,12 @@ window.MZApp = (function () {
     t.doneAt = Date.now();       /* 不立刻删：服务端条目可能还在路上，先走宽限期 */
     paintOps();
   }
+  /* 请求失败时把本地占位撒掉：别留一条一直在转的假进度骗人 */
+  function pendingDrop(t) {
+    if (!t) return;
+    localOps = localOps.filter(function (x) { return x !== t; });
+    paintOps();
+  }
   function ackOp(key) {
     acked[key] = Date.now();
     const ks = Object.keys(acked);
@@ -1402,13 +1451,22 @@ window.MZApp = (function () {
       });
     });
     /* 后端把「写作任务」登记在 jobs 里（没有 ops 条目）时也要看得见 */
+    /* j.message 整章都不变（「正在写第 16 章」），光看它会以为卡住了；
+       接力一下这本书在 live.books 里的实时 phase（策划/写作/审查/润色），
+       任务条上的字才会一直在动。 */
+    const liveBooks = live.books || [];
     (state.liveJobs || live.jobs || []).forEach(function (j) {
       const k = 'job:' + j.id;
       if (acked[k]) return;
+      const b = liveBooks.filter(function (x) { return Number(x.id) === Number(j.novel_id); })[0] || null;
+      const where = (b && Number(b.current_idx)) ? ('第 ' + b.current_idx + ' 章') : '';
+      const what = (b && b.phase) ? b.phase : (j.message || '');
       out.push({
-        key: k, title: j.title || j.kind || '任务', phase: j.message || j.status || '',
+        key: k, title: j.title || j.kind || '任务',
+        phase: [where, what].filter(Boolean).join(' ') || (j.status || ''),
         note: '', pct: j.total ? Math.round(((j.done || 0) * 100) / j.total) : 0,
-        elapsed: 0, steps: [], step: 0, finished: false, ok: true, error: '',
+        elapsed: live.running ? (live.elapsed || 0) : 0,
+        steps: [], step: 0, finished: false, ok: true, error: '',
         started: 0, local: false,
       });
     });
@@ -1559,7 +1617,13 @@ window.MZApp = (function () {
     const live = state.live || {};
     /* 灵动岛只回答「书写得怎么样了」。单纯的章节检查 / 评分不该在这里冒充写作进度，
        那些长操作交给底部那条全局任务条（#opsDock）显示，两条各有各的分工。 */
-    const writing = !!(live.running || (live.books || []).length);
+    /* 只有真的在跑才显示。以前只要 live.books 非空就显示，
+       而服务端跑完后不会清 _books，结果顶部活灵岛一直挂着
+       「补更《…》3 章 · 完成 · 0%」这种自相矛盾的残留。 */
+    const activeJobs = (state.liveJobs || []).filter(function (j) {
+      return j.status === 'running' || j.status === 'queued';
+    }).length;
+    const writing = !!(live.running || activeJobs);
     if (!writing) { dock.hidden = true; return; }
     const pct = Math.max(0, Math.min(100, Number(live.pct) || 0));
 
@@ -2096,9 +2160,19 @@ window.MZApp = (function () {
   function paintTheme() {
     const light = isLightTheme();
     document.documentElement.classList.toggle('light', light);
+    /* 壳色必须跟 --bg 一模一样，不然顶栏/状态栏会漏出另一条色带 */
     const meta = document.querySelector('meta[name=theme-color]');
-    if (meta) meta.setAttribute('content', light ? '#eef2f8' : '#0a0e15');
+    if (meta) meta.setAttribute('content', light ? '#f2f1ee' : '#0c0d0f');
+    const sch = document.querySelector('meta[name=color-scheme]');
+    if (sch) sch.setAttribute('content', light ? 'light' : 'dark');
     return light;
+  }
+  /* 手机从后台回来、或 App 壳首帧读错系统外观时，再量一次 */
+  function rereadTheme() {
+    try {
+      sysLight = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+    } catch (e) { sysLight = false; }
+    if (themePref() === 'system') paintTheme();
   }
   function applyTheme(t) {
     const pref = THEMES.indexOf(t) >= 0 ? t : 'system';
@@ -2117,6 +2191,8 @@ window.MZApp = (function () {
       if (mq.addEventListener) mq.addEventListener('change', on);
       else if (mq.addListener) mq.addListener(on);
     } catch (e) { /* 忽略 */ }
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) rereadTheme(); });
+    window.addEventListener('pageshow', rereadTheme);
   }
 
   /* ============================== 启动 ============================== */
@@ -2147,9 +2223,24 @@ window.MZApp = (function () {
       /* 退到后台就降到低频兜底（iOS 本来也会挂起定时器），回前台由下方
          visibilitychange 立刻补一次，省电也更稳。 */
       if (document.hidden) { pollLive(6000); return; }
+      const wasBusy = liveBusy(state.live);
       await refreshLive();
-      if (state.tab === 'jobs' || (state.tab === 'overview' && liveBusy(state.live))) render();
-      pollLive(liveBusy(state.live) ? 1600 : 4000);
+      const busy = liveBusy(state.live);
+      /* 写作台是全屏覆盖层，它开着的时候不去动下面那屏 */
+      if (!document.querySelector('.ed-wrap')) {
+        /* 任务页：不再整页重画（以前每 1.6 秒 clear + 重建 + 滚动归零，
+           用户原话就是「一直在跳、一直在刷新」），改成只把变化的那一块原地换掉。
+           只有「在跑 / 跑完」这个状态切换才整页重画一次——顶栏的「停止全部」要跟着变。 */
+        const jv = (state.tab === 'jobs' && !state.stack.length) ? state.jobsView : null;
+        if (jv) {
+          jv.paint(state.jobsHistory || null);
+          /* 在跑 / 跑完切换时只同步顶栏的「停止全部」，不重画整页。 */
+          if (jv.busy !== busy) { jv.busy = busy; applyNav(screens.jobs()); }
+        }
+        /* 别的页只在一轮任务跑完的那一刻补画一次：新章节出来了列表要能看到 */
+        else if (wasBusy && !busy) render({ keepScroll: true });
+      }
+      pollLive(busy ? 1600 : 4000);
     }, delay);
   }
   function startTimer() {
@@ -2164,6 +2255,8 @@ window.MZApp = (function () {
   }
 
   function hideSplash() {
+    /* 告诉开屏看门狗：界面已经起来了，别再弹「重新加载」 */
+    window.__mzBooted = true;
     const s = $('#splash');
     if (!s) return;
     s.classList.add('gone');
@@ -2196,6 +2289,16 @@ window.MZApp = (function () {
 
     if (hasAuth()) { enterApp(wantWelcome); return; }
 
+    /* 桌面端换了监听端口之后，localStorage（按 origin 隔离）是空的，
+       先问一句本机后端，把已存的会话接回来，用户就不用莫名其妙再登录一次。 */
+    Promise.resolve(MZ.localSession ? MZ.localSession() : false).then(function (got) {
+      if (got && hasAuth()) { enterApp(wantWelcome); return; }
+      bootAuth(wantWelcome);
+    });
+  }
+
+  /* 没有本地会话时的后一段启动：浏览器 Cookie 会话，拿不到就弹登录卡 */
+  function bootAuth(wantWelcome) {
     /* 浏览器里可能已经是「网关登录过」的状态（Cookie 还在）：先问一声，能拿到资料就直接进。
        否则表现就是「刚在登录页输完账号密码，进来又要输一遍」。
        装机版 App 跑在 capacitor://localhost，没有 Cookie，这一问会 401，照旧弹登录卡。 */
@@ -2252,7 +2355,7 @@ window.MZApp = (function () {
     loadHero: loadHero, ensureHero: ensureHero, refreshAll: refreshAll, refreshLive: refreshLive,
     loadProfile: loadProfile,
     findNovel: findNovel, openBook: openBook, openTokenDialog: openTokenDialog,
-    applyTheme: applyTheme, getTheme: getTheme, themePref: themePref, isLightTheme: isLightTheme,
+    applyTheme: applyTheme, getTheme: getTheme, themePref: themePref, isLightTheme: isLightTheme, rereadTheme: rereadTheme,
     showLogin: showLogin, doLogin: doLogin, showRegister: showRegister,
     showForgot: showForgot, showChangePw: showChangePw,
     pick: pick, li: li, card: card, kpi: kpi, buttons: buttons, seg: seg, bar: barOf,
@@ -2261,7 +2364,7 @@ window.MZApp = (function () {
     runDaily: runDaily, stopAll: stopAll, stagger: stagger, topline: topline,
     askUpdate: askUpdate, askRewrite: askRewrite, bookHitReview: bookHitReview,
     liveBusy: liveBusy, phaseLine: phaseLine, emptyBox: emptyBox, loadingBox: loadingBox, errBox: errBox,
-    pending: pending, pendingDone: pendingDone, paintOps: paintOps, opsAll: opsAll,
+    pending: pending, pendingDone: pendingDone, pendingDrop: pendingDrop, paintOps: paintOps, opsAll: opsAll,
     hitFixInstruction: hitFixInstruction,
     chapTitle: chapTitle, setPinned: setPinned,
     _btn: function (label, tone, onTap, size) {
