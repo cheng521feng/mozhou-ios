@@ -306,6 +306,18 @@ pre { padding: 10px 12px; overflow: auto; line-height: 1.55; }
 .topline.on { transform: scaleX(.9); opacity: .9; }
 
 /* ============================== 底部标签栏 ============================== */
+/* 底部这一条在手机上只有四个标签，用不着品牌字样：.sb-brand 是给 iPad 版左栏准备的，
+   只有 ipad.css 里给它排过版；手机版式里它没有任何样式，就成了一行没头没脑的
+   「墨舟创作工坊」杵在左下角（用户的原话：「iPhone 端左下角有墨舟字样 我不想要」）。
+   这里干脆不显示；iPad 那条 media 里会把它 display:flex 找回来。 */
+.sb-brand { display: none; }
+
+/* iOS 认「双击缩放」时会先等 350ms 再派发 click，手感就是「点一下没反应」，于是又点一下 ——
+   看着就像要点两下。main.html 里虽然写了 user-scalable=no，但 iOS 10 起就无视它了，
+   得靠 touch-action 关掉这层等待。manipulation = 照样能滚、能双指缩放，只是不再为双击留时间。 */
+.tab, .book, .pick-card, .li.tap, .btn, .nb-action, .nb-back, .seg button,
+.chip, .bk-more, .card-head { touch-action: manipulation; }
+
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
   height: calc(var(--tab-h) + var(--safe-b));
@@ -1020,8 +1032,12 @@ textarea.inp { min-height: 96px; line-height: 1.62; resize: vertical; }
 .pick-strip {
   display: flex; gap: 12px;
   overflow-x: auto; overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
+  /* 吸附用 proximity，不用 mandatory：卡片是 center 对齐的，静止时第一条本来就不在
+     吸附点上，mandatory 会「一到就强制对齐」—— iOS 上这一下会把单击吃掉，
+     表现就是点封面要点两下才切换。proximity 只在手势结束后本来就靠近吸附点时才吸。
+     （顺带去掉了 -webkit-overflow-scrolling: touch：iOS 13 起它本来就默认开着，
+     旧版 WebKit 上它会让滚动层吞掉点击。） */
+  scroll-snap-type: x proximity;
   scrollbar-width: none;
   padding: 2px 2px 14px; margin: 0 -2px;
 }
@@ -1032,6 +1048,7 @@ textarea.inp { min-height: 96px; line-height: 1.62; resize: vertical; }
   position: relative; display: flex; flex-direction: column; gap: 7px;
   padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer;
   transition: transform .16s var(--ease);
+  touch-action: manipulation;
 }
 .pick-card:active { transform: scale(.96); }
 .pick-cover {
