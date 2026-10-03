@@ -708,6 +708,49 @@ window.MZ = (function () {
 
   let sheetCtl = null, actionsCtl = null, modalCtl = null;
 
+  /* 抽屉「下拉关闭」的跟手状态。放在模块级是因为 #sheetBox 是复用的同一个元素：
+     处理器写在 sheet() 里面的话，每开一个抽屉就多攒一份监听（开十次 = 十份），
+     所以只在第一次开抽屉时挂上去。 */
+  const sheetDrag = { y0: 0, dy: 0, on: false };
+  let sheetDragBound = false;
+
+  /* 抽屉内容滚过没有。
+     为什么不能只看 .sheet-body：真正能滚的是抽屉盒子本身（style.css 里
+     .sheet { max-height: 88vh; overflow: hidden auto }），.sheet-body 只是内容容器，
+     scrollTop 恒为 0。早先盯的是 .sheet-body，于是「内容已经滚下去了，这一下是在
+     翻表单、不是在往下拉关闭」这条判断从来没生效过 —— 在长抽屉（本章检查）里往下
+     翻一段、再往上滑一下（手指往下走）就被当成下拉关闭，抽屉自己关了。 */
+  function sheetScrolled() {
+    const box = sheetCtl && sheetCtl.box;
+    if (!box) return false;
+    if ((box.scrollTop || 0) > 2) return true;
+    const body = box.querySelector('.sheet-body');
+    return !!(body && body.scrollTop > 2);
+  }
+
+  function onSheetDown(e) {
+    if (e.target.closest && e.target.closest('button,input,textarea,.no-drag')) return;
+    if (sheetScrolled()) return;                 /* 这一下是在翻表单，不是往下拉关闭 */
+    const t = e.touches ? e.touches[0] : e;
+    sheetDrag.y0 = t.clientY; sheetDrag.dy = 0; sheetDrag.on = true;
+    if (sheetCtl && sheetCtl.box) sheetCtl.box.style.transition = 'none';
+  }
+  function onSheetMove(e) {
+    if (!sheetDrag.on || !sheetCtl) return;
+    const t = e.touches ? e.touches[0] : e;
+    sheetDrag.dy = Math.max(0, t.clientY - sheetDrag.y0);
+    const d = sheetDrag.dy;
+    sheetCtl.box.style.transform = 'translateY(' + (d * (d > 130 ? 0.5 : 0.86)) + 'px)';
+  }
+  function onSheetUp() {
+    if (!sheetDrag.on) return;
+    sheetDrag.on = false;
+    if (!sheetCtl) return;
+    sheetCtl.box.style.transition = '';
+    sheetCtl.box.style.transform = '';
+    if (sheetDrag.dy > 96) sheetCtl.closeSilent();
+  }
+
   /* Sheet：底部抽屉，承载长内容与操作。支持下拉关闭（橡皮筋）。 */
   function sheet(opt) {
     opt = opt || {};
@@ -715,6 +758,10 @@ window.MZ = (function () {
     const box = sheetCtl.box;
     sheetCtl.hold();
     clear(box);
+    /* 盒子是复用的：上一个抽屉滚到一半的位置会被新抽屉继承（内容短的那个会出现
+       「一打开就是半截、顶上看不见」）。每次开都从头显示。 */
+    box.scrollTop = 0;
+    sheetDrag.on = false; sheetDrag.dy = 0;
     const head = opt.title ? h('div.sheet-head', null,
       h('h3', { text: opt.title }),
       opt.headRight || null) : null;
@@ -727,34 +774,14 @@ window.MZ = (function () {
     else if (opt.node) add(body, opt.node);
     box.style.height = opt.height || '';
 
-    /* 下拉关闭：只跟手，松手看距离决定回弹还是关掉 */
-    let y0 = 0, dy = 0, drag = false;
-    function onDown(e) {
-      if (e.target.closest && e.target.closest('button,input,textarea,.no-drag')) return;
-      /* 抽屉里内容已经往下滚了，这一下是在翻表单，不是在往下拉关闭 */
-      const sb = box.querySelector('.sheet-body');
-      if (sb && sb.scrollTop > 2) return;
-      const t = e.touches ? e.touches[0] : e;
-      y0 = t.clientY; dy = 0; drag = true;
-      box.style.transition = 'none';
+    /* 下拉关闭：只跟手，松手看距离决定回弹还是关掉。处理器只挂一次。 */
+    if (!sheetDragBound) {
+      sheetDragBound = true;
+      box.addEventListener('touchstart', onSheetDown, { passive: true });
+      box.addEventListener('touchmove', onSheetMove, { passive: true });
+      box.addEventListener('touchend', onSheetUp);
+      box.addEventListener('touchcancel', onSheetUp);
     }
-    function onMove(e) {
-      if (!drag) return;
-      const t = e.touches ? e.touches[0] : e;
-      dy = Math.max(0, t.clientY - y0);
-      box.style.transform = 'translateY(' + (dy * (dy > 130 ? 0.5 : 0.86)) + 'px)';
-    }
-    function onUp() {
-      if (!drag) return;
-      drag = false;
-      box.style.transition = '';
-      box.style.transform = '';
-      if (dy > 96) sheetCtl.closeSilent();
-    }
-    box.addEventListener('touchstart', onDown, { passive: true });
-    box.addEventListener('touchmove', onMove, { passive: true });
-    box.addEventListener('touchend', onUp);
-    box.addEventListener('touchcancel', onUp);
 
     sheetCtl.mask.classList.remove('hidden');
     requestAnimationFrame(function () { sheetCtl.mask.classList.add('on'); });
@@ -769,6 +796,7 @@ window.MZ = (function () {
     const box = actionsCtl.box;
     actionsCtl.hold();
     clear(box);
+    box.scrollTop = 0;            /* 和 sheet 一样：盒子复用，别继承上一个列表的滚动位置 */
     const group = h('div.as-group');
     if (opt.title) group.appendChild(h('div.as-title', { text: opt.title }));
     items.forEach(function (it) {
