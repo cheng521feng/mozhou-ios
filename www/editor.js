@@ -73,7 +73,52 @@ window.MZEditor = (function () {
     return out;
   }
 
+  /* 章节行右边那个「读」：不用先开写作台，直接进沉浸阅读器 */
+  function readBtn(nid, c) {
+    const b = h('button.ed-read', { type: 'button', 'aria-label': '阅读这一章' }, icon('book', { size: 17 }));
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      haptic('light');
+      if (window.MZReader && MZReader.open) MZReader.open(nid, c.id, { title: c.title, idx: c.idx });
+      else toast('阅读器没加载出来，退出重进一次试试', 'bad');
+    });
+    return b;
+  }
+
   /* ============================== 写作标签页 ============================== */
+  function bookNeed(n) {
+    const daily = (n.plan && n.plan.daily) || n.daily_count || 0;
+    const made = (n.plan && n.plan.today_made) || 0;
+    return Math.max(0, daily - made);
+  }
+  /* 一张可以左右滑的选书卡：封面 + 书名 + 今日还差几章，
+     当前正在写的那本贴一个「当前」角标。 */
+  function pickCard(n, mine, onTap) {
+    const el = h('button.pick-card' + (mine ? '.on' : ''), { type: 'button' });
+    const title = n.title || '未命名';
+    const cov = h('div.pick-cover');
+    if (n.cover_url) {
+      const img = document.createElement('img');
+      img.alt = ''; img.decoding = 'async'; img.loading = 'lazy';
+      img.src = n.cover_url;
+      img.addEventListener('error', function () {
+        if (img.parentNode) img.parentNode.removeChild(img);
+        cov.appendChild(h('span.pick-ph', { text: title.slice(0, 1) }));
+      });
+      cov.appendChild(img);
+    } else {
+      cov.appendChild(h('span.pick-ph', { text: title.slice(0, 1) }));
+    }
+    el.appendChild(cov);
+    if (mine) el.appendChild(h('span.pick-badge', { text: '当前' }));
+    el.appendChild(h('div.pick-name', { text: '《' + title + '》' }));
+    const need = bookNeed(n);
+    el.appendChild(h('div.pick-sub', { text: (n.chapter_count || 0) + ' 章 · '
+      + (need > 0 ? ('今日还差 ' + need + ' 章') : '今日已更完') }));
+    el.addEventListener('click', function () { haptic('light'); onTap(n.id); });
+    return el;
+  }
+
   A.screens.write = function () {
     return {
       title: '写作',
@@ -89,11 +134,15 @@ window.MZEditor = (function () {
         }
         if (!selectedNovelId || !A.findNovel(selectedNovelId)) selectedNovelId = novels[0].id;
 
-        const picker = h('div.pillbar');
+        /* 写作页选书：横滑卡片（scroll-snap），跟写作台里「换书」抽屉同一套卡片。
+           以前这里是一排小药丸（.pillbar），书一多就换行，也看不到封面和今日进度，
+           用户的原话就是「写作页面还是没有滑动选择书」。 */
+        out.appendChild(h('div.pick-hint', { text: '左右滑动挑书 · 点一下切到这本' }));
+        const picker = h('div.pick-strip.slim.no-drag');
         novels.forEach(function (n) {
-          const b = h('button' + (n.id === selectedNovelId ? '.on' : ''), { type: 'button', text: n.title || '未命名' });
-          b.addEventListener('click', function () { selectedNovelId = n.id; haptic('light'); A.render(); });
-          picker.appendChild(b);
+          picker.appendChild(pickCard(n, Number(n.id) === Number(selectedNovelId), function (id) {
+            selectedNovelId = id; haptic('light'); A.render();
+          }));
         });
         out.appendChild(picker);
 
@@ -144,7 +193,9 @@ window.MZEditor = (function () {
             const row = li({
               title: '第 ' + c.idx + ' 章　' + (c.title || ''),
               sub: fmtNum(c.chars || 0) + ' 字 · ' + (c.updated_at ? timeAgo(c.updated_at) : ''),
-              right: sc === undefined ? null : chip(String(Math.round(sc)), sc >= 75 ? 'ok' : (sc >= 55 ? '' : 'bad')),
+              right: h('div.row', { style: { gap: '7px' } },
+                sc === undefined ? null : chip(String(Math.round(sc)), sc >= 75 ? 'ok' : (sc >= 55 ? '' : 'bad')),
+                readBtn(selectedNovelId, c)),
               arrow: true,
               onTap: function () { openChapter(selectedNovelId, c.id, { title: c.title, idx: c.idx, nid: selectedNovelId }); },
             });
@@ -899,6 +950,74 @@ window.MZEditor = (function () {
       refreshInspect();
     }
 
+    /* ---- 选书：不用退出写作台，直接换一本书接着写 ---- */
+    function bookTitleOf(id) { const n = A.findNovel(Number(id)); return (n && n.title) || ''; }
+    async function openBookSheet() {
+      const cur = Number(ed ? ed.nid : nid);
+      let list = A.state.novels || [];
+      if (!list.length) {
+        try { await A.ensureHero(); } catch (e) { /* 拉不到就空列表 */ }
+        list = A.state.novels || [];
+      }
+      const box = h('div');
+      if (!list.length) {
+        box.appendChild(h('div.small.muted.center', { text: '作品列表没拉出来，退回「写作」页刷新一下再试' }));
+      } else {
+        /* 横滑选书：左右滑卡片挑书（scroll-snap）。点卡片与点下面列表
+           走的是同一条路（都是 guard(openBook(id))）。 */
+        box.appendChild(h('div.pick-hint', { text: '左右滑动挑书 · 点一下就开始写这本' }));
+        const strip = h('div.pick-strip.no-drag');
+        list.forEach(function (n) {
+          strip.appendChild(pickCard(n, Number(n.id) === cur, function (id) {
+            sh.close(); guard(openBook(id));
+          }));
+        });
+        box.appendChild(strip);
+        box.appendChild(h('div.section-title', { text: '全部作品' }));
+        const lb = h('div.list');
+        list.forEach(function (n) {
+          const mine = Number(n.id) === cur;
+          const need = bookNeed(n);
+          lb.appendChild(li({
+            title: (mine ? '正在写　' : '') + '《' + (n.title || '未命名') + '》',
+            sub: (n.chapter_count || 0) + ' 章 · ' + fmtNum(n.total_chars || 0) + ' 字'
+              + (need > 0 ? ' · 今日还差 ' + need + ' 章' : ' · 今日已更完'),
+            right: mine ? chip('当前', 'ok') : null,
+            arrow: !mine,
+            onTap: function () { sh.close(); if (!mine) guard(openBook(n.id)); },
+          }));
+        });
+        box.appendChild(lb);
+        box.appendChild(h('div.footnote', { text: '换书会自动把这一章的改动先存好，再跳到那本书的最后一章。' }));
+      }
+      let sh = null;
+      sh = sheet({ title: '选择作品 · 共 ' + list.length + ' 本',
+        height: '66vh', build: function (b) { b.appendChild(box); } });
+    }
+    async function openBook(id) {
+      if (!ed || !id) return;
+      if (Number(id) === Number(ed.nid)) return;
+      if (ed.dirty) await save(false);
+      if (!ed) return;
+      let list = [];
+      try {
+        const r = await api.get('/api/novel/' + id + '/chapters');
+        list = (r.chapters || []).slice().sort(function (a, b) { return a.idx - b.idx; });
+      } catch (e) { /* 目录拿不到就当没有 */ }
+      const last = list[list.length - 1];
+      selectedNovelId = Number(id);
+      if (!last) {
+        toast('《' + bookTitleOf(id) + '》还没有章节，回「写作」页点「补更（续写）」开第一章', 'warn');
+        teardown();
+        A.render();
+        return;
+      }
+      haptic('light');
+      toast('已切到《' + bookTitleOf(id) + '》第 ' + last.idx + ' 章', 'ok');
+      teardown();
+      await openChapter(Number(id), last.id, { title: last.title, idx: last.idx, nid: Number(id) });
+    }
+
     function paintMeta() {
       const d = ed && ed.data ? ed.data : {};
       const m = d.metrics || {};
@@ -917,7 +1036,13 @@ window.MZEditor = (function () {
       const segs = paraCount(textArea.value);
       if (segs) meta.appendChild(chip(segs + ' 段', '', 'menu'));
       if (d.weak && d.weak.length) meta.appendChild(chip(d.weak.length + ' 段可疑', 'amber', 'bolt'));
-      if (d.novel_title) meta.appendChild(chip(d.novel_title, '', 'books'));
+      if (d.novel_title) {
+        const bk = chip('《' + d.novel_title + '》', '', 'books');
+        bk.classList.add('ed-book');
+        bk.title = '点一下换一本书写';
+        bk.addEventListener('click', function () { haptic('light'); openBookSheet(); });
+        meta.appendChild(bk);
+      }
       const si = h('div.ed-saveinfo');
       if (ed.saving) { si.textContent = '保存中…'; si.style.color = 'var(--muted)'; }
       else if (ed.dirty) { si.textContent = '● 有未保存修改'; si.style.color = 'var(--amber)'; }
@@ -1182,8 +1307,10 @@ window.MZEditor = (function () {
 
     function moreActions() {
       actions([
+        { label: '用阅读器读这一章', sub: '沉浸阅读，左右翻章', icon: 'book', onPick: function () { guard(goRead()); } },
         { label: '接着写（AI 往下写）', sub: '顺着章末接下去，先给你看再插进去', icon: 'spark', onPick: function () { continueSheet(); } },
         { label: '写下一章（AI 补更）', sub: '这章差不多了，让 AI 接着往下开新章', icon: 'books', onPick: function () { guard(writeNext()); } },
+        { label: '切换作品（换一本书写）', sub: '还在写作台里，改的是同一本书的别的章', icon: 'books', onPick: function () { guard(openBookSheet()); } },
         { label: '卡文了？给我三个走向', sub: '不写正文，只给想法', icon: 'target', onPick: function () { guard(runContinue('ideas', 0, '')); } },
         { label: '查找 / 替换', sub: '章内找字、批量替换（Ctrl/Cmd+F）', icon: 'menu', onPick: function () { toggleFind(); } },
         { label: '撤销上一步', sub: '快捷键 Ctrl/Cmd+Z', icon: 'refresh', onPick: function () { undo(); } },
@@ -1203,6 +1330,18 @@ window.MZEditor = (function () {
         { label: '版本历史', icon: 'history', onPick: function () { openInspect('versions'); } },
         { label: '删除本章', danger: true, icon: 'trash', onPick: function () { delChapter(); } },
       ], { title: '第 ' + ((ed.data && ed.data.chapter && ed.data.chapter.idx) || '') + ' 章' });
+    }
+
+    /* 从写作台切到阅读器：先把改动存好，再把写作台拆掉，最后让阅读器盖上 */
+    async function goRead() {
+      if (!ed) return;
+      if (ed.dirty) await save(false);
+      if (!ed) return;
+      const nid2 = ed.nid, cid2 = ed.cid, t2 = titleInput.value;
+      const idx2 = (ed.data && ed.data.chapter && ed.data.chapter.idx) || 0;
+      teardown();
+      if (window.MZReader && MZReader.open) MZReader.open(nid2, cid2, { title: t2, idx: idx2 });
+      else toast('阅读器没加载出来，退出重进一次试试', 'bad');
     }
 
     /* 从写作台直接开下一章：先把手改存好，再走「补更」那套后台流程 */
@@ -1379,6 +1518,8 @@ window.MZEditor = (function () {
       ed = null;
       document.body.style.overflow = '';
       document.documentElement.style.removeProperty('--dock-bottom');
+      /* 沉浸模式的 body 类不清掉的话，退出写作台后顶栏和底部标签栏会一直藏着 */
+      document.body.classList.remove('ed-immersive');
       if (w && w.parentNode) w.parentNode.removeChild(w);
       return w;
     }
