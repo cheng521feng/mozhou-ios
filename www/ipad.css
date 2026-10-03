@@ -1,0 +1,312 @@
+/* ==========================================================================
+   墨舟 · iPad 版式   ipad.css
+
+   装机版 iPad（iPadOS 上的 WKWebView 壳）专用的一套排版：**视觉照手机** ——
+   style.css / fx.css 那套字体、圆角、配色、卡片、阴影、缓动曲线一行不改；
+   **排版按平板来** —— 左手一条竖栏，正文按屏宽分栏，抽屉收成屏幕正中的对话框。
+
+   为什么不直接搬 desktop.css：
+     · 那是给「鼠标 + 13~27 寸显示器」写的：216px 竖栏、悬停才浮起、细滚动条、
+       900px 就开始切双栏。iPad 上 900px 太早（竖屏 1024 才刚刚够分栏），
+       手指也没有 hover —— 悬停出来的东西等于永远看不见。
+     · 平板的实际姿势是「一只手托着、一只手点」：点击目标要 44pt 起，
+       长按不能弹出 iOS 的「拷贝 / 查询」气泡，滚动要跟手，横竖屏都得能看。
+     · 这个版本不放「桌面版」入口：那套老界面里的发布 / 一致性 / 指标是电脑上的活儿，
+       iPad 版不要发布。
+
+   只在 >= 700px 生效：Stage Manager 里把窗口拖窄了，自动回落手机那套，一行 JS 不用改。
+   ========================================================================== */
+
+@media (min-width: 700px) {
+
+  /* ============================== 0. 触摸底座 ============================== */
+  /* 整页不自个儿滚：滚动交给 .main。不然 iOS 上整页回弹，头部和左栏会跟着一起晃。 */
+  html, body { overflow: hidden; }
+
+  /* 长按封面 / 章节行不该弹出「拷贝 / 查询」气泡；正文和输入框除外 */
+  body { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  input, textarea, select, .ed-text, .rd-page, .sel, pre, code {
+    -webkit-user-select: text; user-select: text;
+  }
+
+  /* 双击不缩放：点下去立刻响应，不用等系统确认「这是不是双击」 */
+  .tab, .book, .pick-card, .li.tap, .btn, .nb-action, .nb-back, .seg button,
+  .chip, .bk-more, .card-head { touch-action: manipulation; }
+
+  /* 滚动条：常驻的粗条子在平板上又丑又碍事，收细 */
+  .main { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  .main::-webkit-scrollbar { width: 9px; height: 9px; }
+  .main::-webkit-scrollbar-track { background: transparent; }
+  .main::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
+  .main::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ============================== 1. 外壳 ============================== */
+  /* --rail-w 是左栏宽度，吐司 / 任务条按它让位，不用在两处写死 */
+  .app {
+    --rail-w: 92px;
+    --pad-w: 1240px;
+    display: grid;
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "rail nav" "rail main";
+    height: 100vh; height: 100dvh;
+    padding-bottom: 0;
+  }
+  /* 沉浸写作：左栏整条撤掉，正文占满（不撤会白留一条） */
+  body.ed-immersive .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "nav" "main";
+  }
+
+  /* ---------- 左栏：手机底部那条标签栏竖过来 ---------- */
+  .tabbar {
+    grid-area: rail;
+    /* 手机那套是 fixed + z-index:50；这里回到普通网格项 */
+    position: relative; z-index: auto; left: auto; right: auto; bottom: auto;
+    height: auto; padding: calc(16px + var(--safe-t)) 8px calc(16px + var(--safe-b));
+    display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+    gap: 5px;
+    background: var(--tab-bg);
+    -webkit-backdrop-filter: saturate(160%) blur(16px);
+    backdrop-filter: saturate(160%) blur(16px);
+    border-top: 0; border-right: 1px solid var(--line-soft);
+  }
+  /* 品牌块：窄栏只留那个小方块 */
+  .sb-brand { display: flex; flex-direction: column; align-items: center; padding: 2px 4px 14px; }
+  .sb-brand .sb-mark {
+    width: 30px; height: 30px; border-radius: 10px;
+    background: linear-gradient(150deg, var(--accent) 0%, #1e7fb6 130%);
+    box-shadow: 0 3px 10px -4px color-mix(in srgb, var(--accent) 80%, transparent);
+  }
+  .sb-brand b { display: none; }
+
+  /* 手机是「图标在上、文字在下」的一小格；这里放大成手指点得准的一格 */
+  .tab {
+    position: relative;
+    flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center;
+    gap: 5px; height: 66px; padding: 0; border-radius: 16px;
+    color: var(--dim); font-size: 11.5px;
+  }
+  .tab .tb-ico { height: 26px; }
+  .tab .tb-ico svg { width: 26px; height: 26px; }
+  .tab b { font-size: 11.5px; font-weight: 560; letter-spacing: 0; }
+  .tab.on { background: var(--accent-soft); color: var(--accent); }
+  .tab.on b { font-weight: 680; }
+  .tab:active { background: var(--press); }
+  .tab .tbadge { position: absolute; top: 6px; right: 14px; margin: 0; }
+
+  /* 老的那套电脑版界面（发布在那儿）在 iPad 上不给出入口 */
+  .pc-link { display: none !important; }
+
+  /* ---------- 顶栏：标题和动作同一行，省一整行的竖向空间 ---------- */
+  .navbar { grid-area: nav; position: sticky; top: 0; z-index: 40; padding-top: 0; }
+  .nb-row {
+    height: 58px; padding: 0 26px;
+    max-width: var(--pad-w); margin-left: auto; margin-right: auto;
+  }
+  .nb-large {
+    display: block; margin: 0 auto 14px; padding: 0 26px;
+    max-width: var(--pad-w);
+    font-size: 31px; line-height: 1.1; letter-spacing: -.9px;
+  }
+  /* 平板上标题不跟着滚动消失：滚一下就没标题，页面会显得「跳」 */
+  .navbar.scrolled .nb-large { display: block; }
+  .nb-action { height: 40px; padding: 0 16px; border-radius: 13px; font-size: 14.5px; }
+  .nb-back { width: 44px; height: 44px; border-radius: 14px; }
+
+  /* ---------- 正文区 ---------- */
+  .main { grid-area: main; overflow-y: auto; overflow-x: hidden; padding-bottom: 40px; }
+  .pad { max-width: calc(var(--pad-w) + 52px); margin-left: auto; margin-right: auto; padding: 6px 26px 0; }
+
+  /* 每个页面的根节点：统一一条最大宽度 + 左右 26px。
+     手机那套是「谁用谁自己写 16px 内边距」，页与页之间、行与行之间各缩各的；
+     平板上要的是『所有东西跟我标题对齐』—— 所以把内边距收到这一层统一管。 */
+  /* 注意层级：.main > div 是渲染壳（app.js 里那个 body），再往里一层才是页面根节点 */
+  .main > div > div {
+    max-width: calc(var(--pad-w) + 52px);
+    margin-left: auto; margin-right: auto;
+    padding-left: 26px; padding-right: 26px;
+  }
+  /* 书架这几条在手机上各自带着 16px 内边距；不清掉的话封面墙会比标题多缩进一截 */
+  .main > div > div > .today-strip,
+  .main > div > div > .books-head,
+  .main > div > div > .bk-tools,
+  .main > div > div > .books-grid,
+  .main > div > div > .footnote { padding-left: 0; padding-right: 0; }
+  /* 段落 / 说明文字别拉成一行 1400px：眼睛来回扫太累 */
+  .pad > .footnote, .pad > .section-title { max-width: 1000px; }
+  .section-title { font-size: 15.5px; }
+
+  /* ============================== 2. 书架 ============================== */
+  .books-head { align-items: flex-end; }
+  .books-head .bh-stat { font-size: 13px; }
+  /* 搜索 / 排序 / 筛选：挪进同一条工具行 */
+  .bk-tools { flex-direction: row; align-items: center; gap: 14px; padding: 12px 0 2px; }
+  .bk-search { flex: 1 1 300px; max-width: 380px; height: 44px; }
+  .bk-sort { flex: 0 0 auto; }
+  .bk-filter { flex: 1 1 auto; }
+  .bk-filter .row, .bk-sort .row { flex-wrap: nowrap; }
+
+  /* 封面墙：按宽度自动排，一列 176 起（约 176x264 一张，手指点得准） */
+  .books-grid {
+    grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+    gap: 22px 14px; padding: 16px 0 0;
+  }
+  .book .bk-title { font-size: 14.5px; }
+  .book .bk-cat, .book .bk-meta { font-size: 12px; }
+  /* 长按封面出「⋯」比较费劲，平板上让「⋯」常显一点（半透明，不抢眼） */
+  .book .bk-dot { opacity: .55; }
+  .book .bk-dot:hover, .book .bk-dot:focus { opacity: 1; }
+
+  /* ============================== 3. 选书条（写作页顶部） ============================== */
+  /* 手机是横滑一条；平板上横向滚动条是浪费：改成按宽度自动排的网格，一眼看全 */
+  .pick-strip {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 16px; padding: 4px 0 18px;
+    overflow: visible; scroll-snap-type: none;
+  }
+  .pick-card { flex: none; width: auto; max-width: none; }
+  /* 「左右滑动挑书」是横滑条时代的提示，排成网格之后就不用说了 */
+  .pick-hint { display: none; }
+  .pick-card .pick-cover, .pick-card .cover { width: 100%; }
+
+  /* ============================== 4. 抽屉 / 弹窗 → 居中对话框 ============================== */
+  .mask { align-items: center; justify-content: center; padding: 28px; }
+  .sheet, .actionsheet {
+    width: min(660px, 100%); max-height: min(86vh, 900px);
+    border: 1px solid var(--line-up); border-radius: 24px;
+    box-shadow: var(--sh-3);
+    animation: ipadPop .22s var(--ease);
+  }
+  .sheet { padding: 0 26px 26px; }
+  .actionsheet { width: min(460px, 100%); padding: 10px 16px 18px; }
+  .sheet-head { padding: 16px 0; }
+  /* 顶上那根小横条是「往下拽」用的，居中对话框没得拽 */
+  .sheet .grabber { display: none; }
+  /* 换书抽屉里是横滑书卡：给它宽一点，平板上不用来回蹭 */
+  .sheet:has(.pick-strip) { width: min(860px, 100%); }
+  .modalbox { max-width: 480px; border-radius: 24px; padding: 24px; }
+  @keyframes ipadPop {
+    from { transform: translateY(12px) scale(.98); opacity: .5; }
+    to { transform: none; opacity: 1; }
+  }
+
+  /* ============================== 5. 列表 / 按钮：手指尺寸 ============================== */
+  .list .li { min-height: 56px; padding-top: 12px; padding-bottom: 12px; }
+  .li-title { font-size: 15.5px; }
+  .li-sub { font-size: 12.5px; }
+  .btn { height: 46px; font-size: 15px; border-radius: 14px; }
+  .btn.sm { height: 38px; font-size: 13.5px; }
+  .mini { min-height: 34px; }
+  .seg button { height: 40px; font-size: 14px; }
+  .inp { height: 46px; font-size: 15.5px; }
+
+  /* ============================== 6. 写作台 / 阅读器 ============================== */
+  /* 一行拉满 1300px 读起来累：正文收一条窄栏，三段对齐同一条中线 */
+  .ed-wrap .ed-body, .ed-wrap .ed-toolbar { width: 100%; max-width: 900px; margin-left: auto; margin-right: auto; }
+  .ed-wrap .ed-nav .nb-row, .ed-wrap .ed-nav .ed-meta { width: 100%; max-width: 900px; margin-left: auto; margin-right: auto; }
+  .ed-wrap .ed-nav .nb-row { height: 58px; }
+  .ed-wrap .ed-nav .ed-meta { padding-left: 0; padding-right: 0; }
+  .ed-wrap .ed-find { width: auto; max-width: 860px; margin-left: auto; margin-right: auto; }
+  .ed-wrap .ed-nav .nb-title { position: static; opacity: 1; }
+
+  .rd-page { max-width: 780px; padding: 0 30px; }
+  .rd-top > .rd-row, .rd-bot > .rd-stat, .rd-bot > .rd-track, .rd-bot > .rd-tools {
+    width: 100%; max-width: 880px; margin-left: auto; margin-right: auto;
+  }
+
+  /* ============================== 7. 任务条 / 吐司 / 登录 ============================== */
+  /* 任务条挂到右下角（写作台里 --dock-bottom 会把它抬到工具条上面） */
+  .opsdock {
+    left: auto; right: 26px; bottom: var(--dock-bottom, 24px);
+    width: min(460px, calc(100% - var(--rail-w) - 52px));
+  }
+  /* 吐司居中在正文那一栏里，别压到左栏上 */
+  .toasts { left: var(--rail-w); right: 0; bottom: 26px; }
+  .toast { max-width: 460px; font-size: 14px; }
+
+  .login-wrap { padding: 26px; }
+  .login-card { max-width: 452px; }
+
+  /* ============================== 8. 鼠标 / 触控板接上来才有 hover ============================== */
+  /* iPadOS 接上妙控键盘的触控板、或连鼠标时才有意义；手指点不该出现「卡住的悬停」 */
+  @media (hover: hover) {
+    .tab:hover { background: var(--press); color: var(--text); }
+    .book:hover .cover { box-shadow: 0 14px 30px -16px rgba(0, 0, 0, .5); }
+    .pick-card:hover .pick-cover { box-shadow: 0 12px 26px -14px rgba(0, 0, 0, .48); }
+    .nb-action:hover { background: var(--accent-soft); }
+    .li.tap:hover { background: var(--press); }
+    .btn:hover { filter: brightness(1.03); }
+    .rd-ic:hover, .rd-tool:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+    .cursor, .btn, .tab, .book, .pick-card, .li.tap { cursor: pointer; }
+  }
+}
+
+/* ==========================================================================
+   9. 宽横屏（>= 1080）：栏里带文字 + 正文分栏
+   iPad Pro 12.9 竖屏 1024、11 寸横屏 1194、12.9 横屏 1366 都落在这条线以上。
+   ========================================================================== */
+@media (min-width: 1080px) {
+
+  /* ---------- 左栏带文字：一行一个，够得着、看得清 ---------- */
+  .app { --rail-w: 208px; }
+  .tabbar { padding-left: 12px; padding-right: 12px; }
+  .sb-brand { flex-direction: row; gap: 10px; padding: 2px 10px 16px; }
+  .sb-brand .sb-mark { width: 26px; height: 26px; border-radius: 9px; }
+  .sb-brand b { display: block; font-size: 15px; font-weight: 660; letter-spacing: -.2px; white-space: nowrap; }
+  .tab {
+    flex-direction: row; justify-content: flex-start; gap: 12px;
+    height: 48px; padding: 0 13px; border-radius: 13px; font-size: 15px;
+  }
+  .tab .tb-ico { height: 22px; }
+  .tab .tb-ico svg { width: 22px; height: 22px; }
+  .tab b { font-size: 15px; font-weight: 540; }
+  .tab.on b { font-weight: 660; }
+  .tab .tbadge { position: static; margin-left: auto; top: auto; right: auto; }
+
+  /* ---------- 写作页：左「今日进度 + 补更」，右「章节列表」 ---------- */
+  .pad:has(> .pick-strip) {
+    display: grid; grid-template-columns: 372px minmax(0, 1fr);
+    gap: 18px 30px; align-items: start;
+  }
+  .pad:has(> .pick-strip) > .pick-strip { grid-column: 1 / -1; }
+  .pad:has(> .pick-strip) > .card { grid-column: 1; margin-top: 0; }
+  .pad:has(> .pick-strip) > *:not(.pick-strip):not(.card) { grid-column: 2; }
+  .pad:has(> .pick-strip) > .section-title { margin-top: 0; }
+
+  /* ---------- 作品页：左「书卡 + 全部操作」，右「前情摘要 + 章节」 ---------- */
+  .pad:has(> .bk-head) {
+    display: grid; grid-template-columns: 368px minmax(0, 1fr);
+    gap: 22px 32px; align-items: start;
+  }
+  .pad:has(> .bk-head) > *:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .pad:has(> .bk-head) > *:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .pad:has(> .bk-head) > *:nth-child(3) { grid-column: 2; grid-row: 1; }
+  .pad:has(> .bk-head) > *:nth-child(4) { grid-column: 2; grid-row: 2; }
+  .bk-head {
+    flex-direction: column; gap: 14px; margin-top: 0;
+    background: var(--panel); border-radius: var(--r-card);
+    padding: 20px; box-shadow: var(--sh-1);
+  }
+  .bk-head .cover { width: 140px; flex: 0 0 auto; }
+  .bk-head .bk-title { font-size: 20px; }
+  .bk-head > div { flex: 0 0 auto; }
+
+  /* ---------- 任务页：左「正在跑」，右「最近任务」 ---------- */
+  .pad:has(> .jobs-hero) {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+    gap: 26px; align-items: start;
+  }
+  .pad:has(> .jobs-hero) > .jobs-hero { grid-column: 1; }
+  .pad:has(> .jobs-hero) > .jobs-list { grid-column: 2; }
+
+  /* ---------- 我的：两列卡片流 ---------- */
+  .pad:has(.list.models) {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr));
+    gap: 22px 26px; align-items: start;
+  }
+  .pad:has(.list.models) > .card { margin-top: 0; }
+  .pad:has(.list.models) > .section-title,
+  .pad:has(.list.models) > .footnote { grid-column: 1 / -1; }
+  .pad:has(.list.models) > .section-title { margin: 6px 0 0; }
+}
