@@ -139,6 +139,18 @@ window.MZ = (function () {
     sess = t || '';
     try { if (sess) localStorage.setItem(SESS_KEY, sess); else localStorage.removeItem(SESS_KEY); } catch (e) { /* 忽略 */ }
   }
+  /* 桌面端：换监听端口之后 localStorage（按 origin 隔离）是空的，
+     问本机后端要回已存的口令，用户就不用莫名其妙再登录一次。 */
+  function localSession() {
+    if (window.MZ_CLOUD) return Promise.resolve(false);   /* 只有桌面端走本机后端 */
+    return fetch('/api/mz/local-session', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.ok && d.token) { setSession(d.token); return true; }
+        return false;
+      })
+      .catch(function () { return false; });
+  }
   function logout() {
     setSession('');
     try { localStorage.removeItem('mz_token'); } catch (e) { /* 忽略 */ }
@@ -205,7 +217,10 @@ window.MZ = (function () {
     if (resp.status === 401) {
       /* 会话过期：清掉本地口令，退回登录页重新登录 */
       setSession('');
-      if (!/index\.html$/.test(location.pathname)) {
+      /* 桌面端在 main.html 里打了 window.MZ_NO_401_REDIRECT：根路径本身就是登录页，
+         这时候再 location.replace('index.html') 只会把页面来回刷（表单刚填好就被冲掉）。
+         所以桌面端只交给 app.js 的 showLogin()，不做跳转。 */
+      if (!window.MZ_NO_401_REDIRECT && !/index\.html$/.test(location.pathname)) {
         setTimeout(function () { location.replace('index.html'); }, 600);
       }
       throw new ApiError('登录已过期，请重新登录', 401);
@@ -322,6 +337,41 @@ window.MZ = (function () {
       password2: String(password2 === undefined ? password : password2),
     });
   }
+
+  /* ============================== 阅读进度 / 划线摘录 ==============================
+     这两个接口挂在网关上（跟着账号走，换手机也在），所以不走 req()：
+     req() 见到 401 会把整个页面弹回登录页 —— 同步进度失败不值得打断读书。
+     一律不抛异常，拿不到就返回 null，调用方自己兜底。 */
+  async function cloudSend(path, method, body) {
+    const hd = authHeaders();
+    const init = { method: method || 'GET', headers: hd, cache: 'no-store' };
+    if (body !== undefined) {
+      hd['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(body);
+    }
+    try {
+      if (!CLOUD && CLOUDS.length) await pickCloud(false);
+      const resp = await fetch(url(path), init);
+      if (!resp.ok) return null;
+      return await resp.json().catch(function () { return null; });
+    } catch (e) { return null; }
+  }
+  const reading = {
+    /* 读进度：不给 nid 就是整本账（每本书一条），给了就只读那一本 */
+    pos: function (nid) {
+      return cloudSend('/api/mz/reading' + (nid ? '?nid=' + encodeURIComponent(String(nid)) : ''));
+    },
+    /* 上报「读到哪了」 */
+    putPos: function (o) { return cloudSend('/api/mz/reading', 'POST', o); },
+    /* 摘录本 */
+    marks: function (nid) {
+      return cloudSend('/api/mz/marks' + (nid ? '?nid=' + encodeURIComponent(String(nid)) : ''));
+    },
+    addMark: function (o) { return cloudSend('/api/mz/marks', 'POST', o); },
+    delMark: function (id) {
+      return cloudSend('/api/mz/marks?id=' + encodeURIComponent(String(id)), 'DELETE');
+    },
+  };
 
   /* ============================== 存文件 ==============================
      iOS 上是把网页装进 WKWebView 壳里跑的（Capacitor）。WKWebView【不支持】a[download]：
@@ -551,6 +601,11 @@ window.MZ = (function () {
     help: '<circle cx="12" cy="12" r="8.4"/><path d="M9.6 9.6a2.4 2.4 0 1 1 3.4 2.2c-.6.4-1 .9-1 1.6v.5"/><circle cx="12" cy="17.1" r=".9"/>',
     git: '<circle cx="6.4" cy="6.4" r="2.6"/><circle cx="6.4" cy="17.6" r="2.6"/><circle cx="17.6" cy="9.6" r="2.6"/><path d="M6.4 9v6M9 6.4h4.2a4.4 4.4 0 0 1 4.4 4.4v3.4"/>',
     dot: '<circle cx="12" cy="12" r="3"/>',
+    /* 三个模型的品牌标：实心，配 .li-ico.mk-* 的品牌底色（见 style.css）。
+       豆包 = 一颗豆子、MiMo = 折线 M、DeepSeek = 鲸鱼。 */
+    m_doubao: '<path fill="currentColor" stroke="none" d="M11.2 4.5C7.3 5 4.4 8.3 4.4 12.4c0 4.1 2.9 7.4 6.8 7.9z"/><path fill="currentColor" stroke="none" d="M12.8 4.5c3.9.5 6.8 3.8 6.8 7.9 0 4.1-2.9 7.4-6.8 7.9z"/>',
+    m_mimo: '<path fill="currentColor" stroke="none" d="M3.9 19.5V4.6l8.1 7.4 8.1-7.4v14.9h-3.1V11l-5 4.6-5-4.6v8.5z"/>',
+    m_deepseek: '<path fill="currentColor" stroke="none" d="M3.3 13.4c.6-4.3 4.4-7.4 9-7.4 3.2 0 6 1.6 7.6 4.1l1.6-3.4c.3-.6 1.2-.4 1.3.2.3 1.5.3 3 0 4.5.3 1.5.3 3 0 4.5-.1.6-1 .8-1.3.2l-1.6-3.4c-1.6 2.5-4.4 4.1-7.6 4.1-4.6 0-8.4-3.1-9-7.4z"/>',
   };
 
   function icon(name, opt) {
@@ -1043,9 +1098,10 @@ window.MZ = (function () {
     emptyBox: emptyBox, loadingBox: loadingBox, errBox: errBox,
     setToken: setToken, getToken: getToken, login: login,
     postCloud: postCloud, sms: sms, register: register,
-    postAuth: postAuth, resetPassword: resetPassword,
+    postAuth: postAuth, resetPassword: resetPassword, reading: reading,
     changePassword: changePassword, changePasswordByCode: changePasswordByCode,
     url: url, img: img, authHeaders: authHeaders, setSession: setSession, logout: logout,
+    localSession: localSession,
     clouds: CLOUDS.slice(), pickCloud: pickCloud, useCloud: useCloud,
     get CLOUD() { return CLOUD || CLOUDS[0] || ''; },
     online: true,
