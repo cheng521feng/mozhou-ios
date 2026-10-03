@@ -63,7 +63,7 @@
     grid-area: rail;
     /* 手机那套是 fixed + z-index:50；这里回到普通网格项 */
     position: relative; z-index: auto; left: auto; right: auto; bottom: auto;
-    height: auto; padding: calc(16px + var(--safe-t)) 8px calc(16px + var(--safe-b));
+    height: auto; padding: max(calc(16px + var(--safe-t)), 36px) 8px calc(16px + var(--safe-b));
     display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
     gap: 5px;
     background: var(--tab-bg);
@@ -71,11 +71,16 @@
     backdrop-filter: saturate(160%) blur(16px);
     border-top: 0; border-right: 1px solid var(--line-soft);
   }
-  /* 品牌块：窄栏只留那个小方块 */
+  /* 品牌块：窄栏只留那个小方块。
+     小方块里放的是真·墨舟标（icons/icon-192.png，跟 App 图标、启动图、登录页
+     同一个）—— 以前这里只画了个渐变方块，左上角看着就是个色块，
+     用户的原话是「iPad 版左上角没有墨舟图标」。
+     渐变留着当兜底：图万一没加载出来也不至于是个空洞。 */
   .sb-brand { display: flex; flex-direction: column; align-items: center; padding: 2px 4px 14px; }
   .sb-brand .sb-mark {
-    width: 30px; height: 30px; border-radius: 10px;
-    background: linear-gradient(150deg, var(--accent) 0%, #1e7fb6 130%);
+    width: 32px; height: 32px; border-radius: 11px;
+    background: url(icons/icon-192.png) center/cover no-repeat,
+                linear-gradient(150deg, var(--accent) 0%, #1e7fb6 130%);
     box-shadow: 0 3px 10px -4px color-mix(in srgb, var(--accent) 80%, transparent);
   }
   .sb-brand b { display: none; }
@@ -98,8 +103,19 @@
   /* 老的那套电脑版界面（发布在那儿）在 iPad 上不给出入口 */
   .pc-link { display: none !important; }
 
-  /* ---------- 顶栏：标题和动作同一行，省一整行的竖向空间 ---------- */
-  .navbar { grid-area: nav; position: sticky; top: 0; z-index: 40; padding-top: 0; }
+  /* ---------- 顶栏：标题和动作同一行，省一整行的竖向空间 ----------
+     padding-top 必须留住状态栏那一截：iPadOS 的状态栏是浮在网页上面的，
+     壳里全屏（contentInset: never）+ viewport-fit=cover 时，只能靠
+     env(safe-area-inset-top) 往下让。这里以前写成了 0，横屏时右上角的
+     「新建」正好顶到电量 / 时间上（用户的原话：离电量太近），手指也容易误触。
+     横屏有些机型报回来的 safe-area-inset-top 是 0，所以再钉一个下限。 */
+  .navbar {
+    grid-area: nav; position: sticky; top: 0; z-index: 40;
+    padding-top: max(var(--safe-t), 12px);
+  }
+  @media (orientation: landscape) {
+    .navbar { padding-top: max(var(--safe-t), 26px); }
+  }
   .nb-row {
     height: 58px; padding: 0 26px;
     max-width: var(--pad-w); margin-left: auto; margin-right: auto;
