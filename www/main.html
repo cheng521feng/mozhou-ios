@@ -24,6 +24,56 @@
   } catch (e) { /* 忽略 */ }
 })();
 </script>
+<!-- 开屏看门狗：js/css 半路没加载全（别的软件抢了同一个端口、网卡抽风）时，
+     以前就是永久停在「正在连接…」；现在会自己摆一块「重新加载」出来，点一下重来。
+     只在「确实有资源加载失败」或「停了很久还没起来」时才出现，界面一旦正常起来就自动撤掉。 -->
+<script>
+(function () {
+  window.__mzFail = 0;
+  window.__mzT0 = Date.now();
+  var ORIG = '正在连接…';
+  var timer = 0;
+  window.addEventListener('error', function (e) {
+    var t = e && e.target;
+    if (!t || !t.tagName) return;
+    if (t.tagName === 'SCRIPT') { window.__mzFail++; return; }
+    if (t.tagName === 'LINK' && t.rel === 'stylesheet') window.__mzFail++;
+  }, true);
+  function splash() {
+    var s = document.getElementById('splash');
+    return (s && !s.classList.contains('gone')) ? s : null;
+  }
+  function clearBoard() {
+    var s = splash();
+    if (!s) return;
+    var b = s.querySelector('.sp-retry');
+    if (b && b.parentNode) b.parentNode.removeChild(b);
+    var m = document.getElementById('splashMsg');
+    if (m) m.textContent = ORIG;
+  }
+  function board(msg) {
+    if (window.__mzBooted) return;
+    var s = splash();
+    if (!s) return;
+    var m = document.getElementById('splashMsg');
+    if (m) m.textContent = msg;
+    if (s.querySelector('.sp-retry')) return;
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'sp-retry';
+    b.textContent = '重新加载';
+    b.style.cssText = 'margin-top:18px;padding:9px 24px;border:0;border-radius:999px;'
+      + 'background:var(--accent,#2f6bff);color:#fff;font:inherit;font-size:15px;cursor:pointer;';
+    b.addEventListener('click', function () { location.reload(); });
+    s.appendChild(b);
+  }
+  timer = setInterval(function () {
+    if (window.__mzBooted) { clearBoard(); clearInterval(timer); return; }
+    if (window.__mzFail) board('资源没加载全，点一下重新加载');
+    else if (Date.now() - window.__mzT0 > 20000) board('还在启动…一直停着就点一下重试');
+  }, 1000);
+})();
+</script>
 <meta name="format-detection" content="telephone=no,email=no,address=no" />
 <title>墨舟创作工坊</title>
 <link rel="manifest" href="manifest.webmanifest" />
@@ -40,37 +90,45 @@
 <link rel="apple-touch-startup-image" href="splash/1125x2436.png" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3)" />
 <link rel="apple-touch-startup-image" href="splash/828x1792.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2)" />
 <link rel="apple-touch-startup-image" href="splash/750x1334.png" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2)" />
-<link rel="stylesheet" href="style.css?v=20260930g" />
-<link rel="stylesheet" href="fx.css?v=20260930g" />
+<link rel="stylesheet" href="style.css?v=20261002a" />
+<link rel="stylesheet" href="fx.css?v=20261002a" />
+<link rel="stylesheet" href="desktop.css?v=20261002a" />
 </head>
 <body>
 <div class="topline" id="topline"></div>
 
 <!-- 未登录时的登录页（由 app.js 决定显示还是隐藏） -->
 <div class="login-wrap" id="loginWrap" hidden>
+  <div class="login-aurora" aria-hidden="true"></div>
   <form class="login-card" id="loginForm" novalidate>
-    <div class="login-logo" id="loginLogo"></div>
-    <h1>墨舟创作工坊</h1>
-    <p class="login-sub">登录后自动同步书稿</p>
+    <div class="login-head">
+      <div class="login-logo" id="loginLogo"></div>
+      <h1>墨舟创作工坊</h1>
+      <p class="login-sub">登录后自动传书稿，换手机也不丢</p>
+    </div>
     <div class="login-err" id="loginErr" hidden></div>
     <div class="login-field">
       <label for="lgUser">用户名</label>
-      <input id="lgUser" name="user" type="text" autocapitalize="off" autocorrect="off"
+      <input id="lgUser" class="inp" name="user" type="text" autocapitalize="off" autocorrect="off"
              autocomplete="username" spellcheck="false"
-             placeholder="用户名或手机号" enterkeyhint="next" />
+             placeholder="用户名 / 手机号" enterkeyhint="next" />
     </div>
     <div class="login-field">
       <label for="lgPass">密码<span class="hint">点右边眼睛可显示</span></label>
       <div class="pw">
-        <input id="lgPass" name="password" type="password" autocomplete="current-password"
+        <input id="lgPass" class="inp" name="password" type="password" autocomplete="current-password"
                placeholder="登录密码" enterkeyhint="go" />
         <button type="button" class="eye" id="lgEye" aria-label="显示密码" title="显示密码"></button>
       </div>
     </div>
-    <button class="btn primary" type="submit" id="loginGo">登录并同步</button>
-    <button class="btn ghost reg-link" type="button" id="loginReg">没有账号？用手机号注册</button>
-    <button class="btn ghost reg-link" type="button" id="loginForgot">忘记密码？用手机号找回</button>
-    <div class="footnote txt-c">数据按账号独立存放，手机和电脑登录同一账号即是同一份稿子。</div>
+    <button class="btn primary login-go" type="submit" id="loginGo">登录并同步</button>
+    <div class="login-or"><span>还没有账号 / 忘了密码</span></div>
+    <div class="login-links">
+      <button class="btn ghost reg-link" type="button" id="loginReg">用手机号注册</button>
+      <i class="login-sep" aria-hidden="true"></i>
+      <button class="btn ghost reg-link" type="button" id="loginForgot">忘记密码</button>
+    </div>
+    <div class="footnote txt-c">书稿按账号独立存，手机和电脑登录同一账号即同一份稿子。</div>
   </form>
 </div>
 
@@ -95,6 +153,8 @@
   <main class="main" id="main" role="main"></main>
 
   <nav class="tabbar" id="tabbar">
+  <!-- 电脑端左侧栏的品牌块（desktop.css 里窄窗口隐藏；手机端 www/ 没有这个文件） -->
+  <div class="sb-brand" aria-hidden="true"><i class="sb-mark"></i><b>墨舟创作工坊</b></div>
     <button class="tab on" data-tab="books"><span class="tb-ico" data-ico="books"></span><b>书架</b></button>
     <button class="tab" data-tab="write"><span class="tb-ico" data-ico="write"></span><b>写作</b></button>
     <button class="tab" data-tab="jobs"><span class="tb-ico" data-ico="jobs"></span><b>任务</b><span class="tbadge" id="badgeJobs" hidden></span></button>
@@ -139,10 +199,72 @@
   <div class="wc-tip">点一下直接进入</div>
 </div>
 
-<script src="api.js?v=20260930g"></script>
-<script src="app.js?v=20260930g"></script>
-<script src="pages.js?v=20260930g"></script>
-<script src="editor.js?v=20260930g"></script>
-<script src="book.js?v=20260930g"></script>
+<!-- 桌面端：页面是本地墨舟服务发出来的，接口就走同源相对路径，
+     不连云端那三个入口（那三个是给手机 App 用的）。 -->
+<script>window.MZ_NO_401_REDIRECT = 1;</script>
+<script src="api.js?v=20261002a"></script>
+<script src="app.js?v=20261002a"></script>
+<script src="pages.js?v=20261002a"></script>
+<script src="editor.js?v=20261002a"></script>
+<script src="book.js?v=20261002a"></script>
+<script src="reader.js?v=20261002a"></script>
+<!-- 老的那套桌面版界面（发布 / 一致性 / 指标这些电脑上才用的功能都在里面） -->
+<a class="pc-link" href="/pc/" title="切到桌面版界面">桌面版</a>
+
+<!-- 桌面端专属：电脑没有「手指左右滑」，把鼠标滚轮接到横滑条上（选书条 / 筛选条都算）。 -->
+<script>
+(function () {
+  if (!window.MZ_NO_401_REDIRECT) return;
+  function hbox(el) {
+    while (el && el.nodeType === 1 && el !== document.body) {
+      var st = getComputedStyle(el);
+      if ((st.overflowX === 'auto' || st.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 2) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+  document.addEventListener('wheel', function (e) {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;   /* 本来就是横向的，别插手 */
+    var el = hbox(e.target);
+    if (!el) return;
+    el.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
+})();
+</script>
+
+
+<!-- 电脑端专属：键盘操作。手机端没有这个文件，不影响触屏。 -->
+<script>
+(function () {
+  if (!window.MZ_NO_401_REDIRECT) return;          /* 只在电脑端那份生效 */
+  var ORDER = ['books', 'write', 'jobs', 'me'];
+
+  function openLayer() {
+    /* 从最上面那一层开始关：模态 → 动作菜单 → 抽屉 */
+    var ids = ['maskModal', 'maskActions', 'maskSheet'];
+    for (var i = 0; i < ids.length; i++) {
+      var m = document.getElementById(ids[i]);
+      if (m && !m.classList.contains('hidden')) return m;
+    }
+    return null;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      var m = openLayer();
+      if (m) { m.click(); e.preventDefault(); }
+      return;
+    }
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    var n = parseInt(e.key, 10);
+    if (!(n >= 1 && n <= ORDER.length)) return;
+    var tab = ORDER[n - 1];
+    var btn = document.querySelector('.tab[data-tab="' + tab + '"]');
+    if (btn) { btn.click(); e.preventDefault(); }
+  });
+})();
+</script>
+
 </body>
 </html>
