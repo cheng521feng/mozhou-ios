@@ -202,7 +202,7 @@ window.MZEditor = (function () {
             const sc = scoreMap[c.idx];
             const row = li({
               title: '第 ' + c.idx + ' 章　' + (c.title || ''),
-              sub: fmtNum(c.chars || 0) + ' 字 · ' + (c.updated_at ? timeAgo(c.updated_at) : ''),
+              sub: fmtNum(c.chars || 0) + ' 字 · ' + (c.updated_at ? timeAgo(c.updated_at) : '') + (c.source === 'demo' ? ' · 演示' : ''),
               right: h('div.row', { style: { gap: '7px' } },
                 sc === undefined ? null : chip(String(Math.round(sc)), sc >= 75 ? 'ok' : (sc >= 55 ? '' : 'bad')),
                 readBtn(selectedNovelId, c)),
@@ -929,7 +929,8 @@ window.MZEditor = (function () {
         const ch = d.chapter || {};
         titleInput.value = ch.title || '';
         textArea.value = ch.content || '';
-        navTitle.textContent = '第 ' + (ch.idx || '') + ' 章';
+        // 演示章节在标题上就标出来，免得用户以为「模型写歪了」（真发生过）。
+        navTitle.textContent = '第 ' + (ch.idx || '') + ' 章' + (ch.source === 'demo' ? ' · 演示章节' : '');
         ed.dirty = false;
         ed.savedAt = '';
         ed.undo = []; ed.redo = []; ed.lastSnap = null;
