@@ -1802,6 +1802,7 @@ window.MZApp = (function () {
         /* 欢迎页先盖上来，书稿在后面照常载入；点一下或几秒后自己退场 */
         const wp = showWelcome();
         await refreshAll(false);
+        wireApp();          /* 登录卡这条路以前不走 enterApp()，下拉刷新 / 右滑返回会一直缺着 */
         startTimer();
         await wp;
         return true;
@@ -2304,13 +2305,18 @@ window.MZApp = (function () {
     }, delay);
   }
   function startTimer() {
-    if (liveTimer) { clearTimeout(liveTimer); clearInterval(liveTimer); }
+    /* 这个函数必须「调几次都行」：会话过期后在登录卡重新登录会再进来一次，
+       而它一开头就把旧定时器都清掉 —— 要是只在第一次建新的，第二次之后书架就
+       再也不会自动对齐了（别的端删了书，本机一直看不见）。所以除了一次性的监听，
+       定时器一律「先清后建」。 */
+    if (liveTimer) { clearTimeout(liveTimer); liveTimer = null; }
     if (shelfTimer) { clearInterval(shelfTimer); shelfTimer = null; }
     pollLive(900);
+    /* 书架对齐：每 15 秒一次（定时器退到后台会被系统挂起，没关系，回来时会立刻补一次） */
+    shelfTimer = setInterval(function () { syncShelf(); }, SHELF_CHECK_MS);
     if (!pollBound) {
       pollBound = true;
-      /* 书架对齐：每 15 秒一次（定时器退到后台会被系统挂起，没关系，回来时会立刻补一次） */
-      shelfTimer = setInterval(function () { syncShelf(); }, SHELF_CHECK_MS);
+      /* visibilitychange 只挂一次，别攒监听 */
       document.addEventListener('visibilitychange', function () {
         if (!document.hidden) {
           refreshLive();   /* 回到前台：不等定时器，立刻对齐真实状态 */
@@ -2380,9 +2386,14 @@ window.MZApp = (function () {
   }
 
   /* 真正进主界面：本地会话和「网关 Cookie 会话」都走这里 */
-  function enterApp(wantWelcome) {
-    showApp();
-    go('overview');
+  /* 界面接线：滚动收起大标题、下拉刷新、左边缘右滑返回。
+     这些是「挂一次就够」的监听，但以前只在 enterApp() 里挂 —— 而登录卡那条路
+     （会话过期后重新登录）根本不走 enterApp()，结果是重登之后下拉刷新和右滑返回
+     全失灵，得整页重载才回来。抽成 wireApp()，两条路都调。 */
+  let wired = false;
+  function wireApp() {
+    if (wired) return;
+    wired = true;
     const main = $('#main');
     main.addEventListener('scroll', function () {
       const s = state.stack.length ? state.stack[state.stack.length - 1] : (screens[state.tab] && screens[state.tab]());
@@ -2403,6 +2414,12 @@ window.MZApp = (function () {
       const t = e.changedTouches[0];
       if (t.clientX - sx > 70 && Math.abs(t.clientY - sy) < 60) pop();
     }, { passive: true });
+  }
+
+  function enterApp(wantWelcome) {
+    showApp();
+    go('overview');
+    wireApp();
 
     /* 欢迎页要名字和头像，所以先把资料拉回来再画 */
     const wp = wantWelcome
