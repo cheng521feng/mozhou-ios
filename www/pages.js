@@ -72,7 +72,7 @@
     const ops = live.ops || {};
     const opSig = Object.keys(ops).map(function (k) {
       const o = ops[k] || {};
-      return [k, o.title, o.phase, o.note, Math.round(o.pct || 0), o.finished ? 1 : 0,
+      return [k, o.title, o.phase, o.note, o.finished ? 1 : 0,
         o.ok === false ? 0 : 1, o.step, (o.steps || []).join(',')].join(':');
     }).join(';');
     const q = live.queue || {};
@@ -85,7 +85,7 @@
     const eSig = (live.events || []).slice(-12).map(function (e) {
       return ((e && e.at) || '') + '|' + ((e && (e.msg || e.message)) || e || '');
     }).join(';');
-    return [live.running ? 1 : 0, Math.round(live.pct || 0), live.done, live.total,
+    return [live.running ? 1 : 0, live.done, live.total,
       live.job_title, live.phase, live.msg, live.chars, opSig, qSig, bSig, eSig].join('#');
   }
   function jobsView(out) {
