@@ -377,7 +377,7 @@ window.MZApp = (function () {
   function liveHero(live, opt) {
     opt = opt || {};
     live = live || {};
-    const pct = Math.max(0, Math.min(100, Number(live.pct) || 0));
+    const pct = creepPct(live.pct, live.rate, !!live.running);
     const box = h('div.live-hero.running-card');
     box.appendChild(h('div.lh-top', null,
       h('span.live-dot'),
@@ -398,7 +398,8 @@ window.MZApp = (function () {
     if (books.length) {
       const bl = h('div.live-books');
       books.forEach(function (b) {
-        const bp = b.pct === undefined || b.pct === null ? (b.need ? ((b.done || 0) / b.need) * 100 : 0) : b.pct;
+        const bp = b.pct === undefined || b.pct === null ? (b.need ? ((b.done || 0) / b.need) * 100 : 0)
+          : creepPct(b.pct, b.rate, (b.done || 0) < (b.need || 0));
         bl.appendChild(h('div', null,
           h('div.live-book', null,
             h('span.lb-t', { text: '《' + (b.title || '未命名') + '》' + (b.phase ? ' · ' + b.phase : '') }),
@@ -1477,6 +1478,15 @@ window.MZApp = (function () {
     hideAt = 0;
     paintOps();
   }
+  /* 服务端给的是「快照那一刻」的百分比 + 爬升速度（%/秒）。
+     两次轮询之间照这个速度自己往前推：数字一直在动，又不会越过 99.5%
+     （没完成就不许显示 100%），所以不会再出现「点完半天不动，然后一下跳过去」。 */
+  function creepPct(pct, rate, running) {
+    const p = Math.max(0, Math.min(100, Number(pct) || 0));
+    const r = Math.max(0, Number(rate) || 0);
+    const dt = liveAt ? Math.max(0, (Date.now() - liveAt) / 1000) : 0;
+    return Math.min(running ? 99.5 : 100, p + r * dt);
+  }
   /* 进度只进不退；同一个 key 换了一次新运行（started 变了）就重新计 */
   function pctKeep(key, pct, started) {
     const v = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
@@ -1503,7 +1513,7 @@ window.MZApp = (function () {
       const started = Number(o.started_at) || 0;
       out.push({
         key: k, title: o.title || k, phase: o.phase || '', note: o.note || '',
-        pct: pctKeep(k, o.pct || 0, started),
+        pct: creepPct(pctKeep(k, o.pct || 0, started), o.rate, !o.finished),
         elapsed: Math.round((o.elapsed || 0) + (o.finished ? 0 : drift)),
         steps: o.steps || [], step: o.step || 0,
         finished: !!o.finished, ok: o.ok !== false, error: o.error || '',
@@ -1524,7 +1534,8 @@ window.MZApp = (function () {
       out.push({
         key: k, title: j.title || j.kind || '任务',
         phase: [where, what].filter(Boolean).join(' ') || (j.status || ''),
-        note: '', pct: j.total ? Math.round(((j.done || 0) * 100) / j.total) : 0,
+        note: '', pct: creepPct(j.total ? ((j.done || 0) * 100) / j.total : (live.pct || 0),
+          (b && b.rate) || 0, true),
         elapsed: live.running ? (live.elapsed || 0) : 0,
         steps: [], step: 0, finished: false, ok: true, error: '',
         started: 0, local: false,
@@ -1685,7 +1696,7 @@ window.MZApp = (function () {
     }).length;
     const writing = !!(live.running || activeJobs);
     if (!writing) { dock.hidden = true; return; }
-    const pct = Math.max(0, Math.min(100, Number(live.pct) || 0));
+    const pct = creepPct(live.pct, live.rate, !!live.running);
 
     const t = $('#idTitle'), sb = $('#idSub'), pc = $('#idPct'), fl = $('#idFill');
     if (t) t.textContent = live.job_title || '正在跑';
@@ -1694,6 +1705,51 @@ window.MZApp = (function () {
     if (fl) fl.style.width = pct + '%';
     dock.hidden = false;
   }
+  /* 两次 /api/live 之间把进度往前推：只改样式和文字，不重建 DOM，
+     所以数字一直在动，又不会闪、不会跳、不会把进度环动画重播。 */
+  function paintLiveSoft() {
+    const live = state.live || {};
+    if (!liveBusy(live)) return;
+    const pct = creepPct(live.pct, live.rate, !!live.running);
+    const hero = document.querySelector('.live-hero');
+    if (hero) {
+      const ringEl = hero.querySelector('.ring');
+      if (ringEl) {
+        ringEl.style.setProperty('--p', String(pct));
+        const b = ringEl.querySelector('b');
+        if (b) b.textContent = String(Math.round(pct));
+      }
+      const chipEl = hero.querySelector('.lh-top .chip');
+      if (chipEl) chipEl.textContent = Math.round(pct) + '%';
+      const fill = hero.querySelector('.lh-main .bar-fill');
+      if (fill) fill.style.width = pct + '%';
+      const bl = hero.querySelectorAll('.lb-bar .bar-fill');
+      (live.books || []).forEach(function (b, i) {
+        if (!bl[i]) return;
+        bl[i].style.width = creepPct(b.pct, b.rate, (b.done || 0) < (b.need || 0)) + '%';
+      });
+      const cards = hero.querySelectorAll('.op-card');
+      Object.keys(live.ops || {}).forEach(function (k, i) {
+        const o = live.ops[k] || {}, card = cards[i];
+        if (!card) return;
+        const c = card.querySelector('.chip');
+        if (!c) return;
+        const t = o.ok === false ? '失败'
+          : (o.finished ? '完成' : Math.round(creepPct(o.pct, o.rate, !o.finished)) + '%');
+        if (c.textContent !== t) c.textContent = t;
+      });
+      const el = hero.querySelector('.lh-elapsed');
+      if (el) {
+        const sec = Math.round((live.elapsed || 0) + (liveAt ? (Date.now() - liveAt) / 1000 : 0));
+        const t = live.elapsed ? ('已用时 ' + fmtDur(sec)) : '';
+        if (el.textContent !== t) el.textContent = t;
+      }
+    }
+    const fl = $('#idFill'), pc = $('#idPct');
+    if (fl) fl.style.width = pct + '%';
+    if (pc) pc.textContent = Math.round(pct) + '%';
+  }
+
   function paintBadge() {
     const b = $('#badgeJobs');
     if (!b) return;
@@ -2258,6 +2314,7 @@ window.MZApp = (function () {
 
   /* ============================== 启动 ============================== */
   let liveTimer = null;
+  let softTimer = null;
   let pollBound = false;
 
   function paintIcons() {
@@ -2311,6 +2368,8 @@ window.MZApp = (function () {
        定时器一律「先清后建」。 */
     if (liveTimer) { clearTimeout(liveTimer); liveTimer = null; }
     if (shelfTimer) { clearInterval(shelfTimer); shelfTimer = null; }
+    if (softTimer) clearInterval(softTimer);
+    softTimer = setInterval(paintLiveSoft, 500);   // 两次轮询之间把百分比往前推
     pollLive(900);
     /* 书架对齐：每 15 秒一次（定时器退到后台会被系统挂起，没关系，回来时会立刻补一次） */
     shelfTimer = setInterval(function () { syncShelf(); }, SHELF_CHECK_MS);
