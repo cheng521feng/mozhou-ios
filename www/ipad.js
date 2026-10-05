@@ -1,5 +1,4 @@
-﻿# -*- coding: utf-8 -*-
-"""墨舟 · iPad 版的小动作   ipad.js
+/* 墨舟 · iPad 版的小动作   ipad.js
 
    排版全在 ipad.css 里（纯 CSS 就能成型，一行 JS 都不用）。这里只补 CSS 干不了的两件事：
 
@@ -11,7 +10,9 @@
 
    为什么不做「双击不缩放」的 JS 兜底：CSS 的 touch-action: manipulation 在 iPadOS 上已经管住了，
    再用 touchend + preventDefault 去拦，会把「连点两下切页」这种正常操作也一起吃掉，得不偿失。
-"""
+
+   注意：这个文件以前开头误写成 Python 的「编码声明 + 三引号 docstring」，浏览器整份解析失败
+   （Invalid or unexpected token），下面的快捷键一条都没生效过。改它的时候别再把注释写成 # 开头。 */
 (function () {
   'use strict';
 
