@@ -558,7 +558,11 @@ window.MZEditor = (function () {
     }
     async function switchTo(c) {
       if (!ed || !c) return;
-      if (ed.dirty) await save(false);
+      if (ed.dirty) {
+        await save(false);
+        /* 还脏就是没存上：切走会 teardown，那一章的新改动就没了 */
+        if (ed && ed.dirty) { toast('这一章还没保存上，先别切章', 'bad'); return; }
+      }
       if (!ed) return;
       teardown();
       await openChapter(nid, c.id, { title: c.title, idx: c.idx, nid: nid });
@@ -1077,22 +1081,29 @@ window.MZEditor = (function () {
     });
 
     async function save(manual) {
-      if (!ed || ed.saving) return;
+      /* 返回「这次到底存上了没有」，调用方要拿它决定能不能安全地离开这一章。
+         关键一条：PUT 在路上的时候用户还能继续打字。以前回来就无条件 ed.dirty = false，
+         那几段新打的字既不会被重发、界面还显示「✓ 已同步」、关编辑器也不拦 —— 直接丢稿。
+         所以只认「发出去的那份 == 现在这份」才算干净，否则把自动保存再排一次。 */
+      if (!ed || ed.saving) return false;
       ed.saving = true;
       const content = textArea.value;
       const title = titleInput.value;
       paintMeta();
       try {
         const res = await api.put('/api/chapter/' + cid, { content: content, title: title });
-        if (!ed) return;
+        if (!ed) return false;
         ed.data = Object.assign({}, ed.data, { chapter: res.chapter, metrics: res.metrics });
-        ed.dirty = false;
+        if (textArea.value === content && titleInput.value === title) ed.dirty = false;
+        else autoSave();
         const dd = new Date();
         ed.savedAt = dd.getHours() + ':' + ('0' + dd.getMinutes()).slice(-2);
         if (manual) { toast('已保存', 'ok'); haptic('success'); }
+        return true;
       } catch (e) {
         if (manual) toast('保存失败：' + e.message, 'bad');
         else toast('自动保存失败，请手动点「保存」', 'bad');
+        return false;
       } finally { if (ed) { ed.saving = false; paintMeta(); } }
     }
     /* ============== 长操作：进度交给全局任务条（服务端 ops，刷新/切页都不丢） ==============
@@ -1345,7 +1356,10 @@ window.MZEditor = (function () {
     /* 从写作台切到阅读器：先把改动存好，再把写作台拆掉，最后让阅读器盖上 */
     async function goRead() {
       if (!ed) return;
-      if (ed.dirty) await save(false);
+      if (ed.dirty) {
+        await save(false);
+        if (ed && ed.dirty) { toast('这一章还没保存上，先别切到阅读器', 'bad'); return; }
+      }
       if (!ed) return;
       const nid2 = ed.nid, cid2 = ed.cid, t2 = titleInput.value;
       const idx2 = (ed.data && ed.data.chapter && ed.data.chapter.idx) || 0;
@@ -1537,7 +1551,11 @@ window.MZEditor = (function () {
       if (!force && ed && ed.dirty) {
         const pick = await pickCloseAction();
         if (pick === 'cancel') return;
-        if (pick === 'save') await save(false);
+        if (pick === 'save') {
+          await save(false);
+          /* 没存上就留在编辑器里：以前不看结果直接 teardown，那一章就白写了 */
+          if (ed && ed.dirty) { toast('还没保存上，先别退出', 'bad'); return; }
+        }
       } else if (!force && ed) {
         await save(false);
       }
