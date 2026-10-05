@@ -35,7 +35,8 @@ jobs:
             "@capacitor/core": "latest",
             "@capacitor/ios": "latest",
             "@capacitor/filesystem": "latest",
-            "@capacitor/share": "latest"
+            "@capacitor/share": "latest",
+            "@capacitor/haptics": "latest"
           },
           "devDependencies": {
             "@capacitor/cli": "latest"
@@ -151,10 +152,20 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string 墨舟需要访问你电脑上的写作服务" "$PLIST" || true
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 墨舟" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string 墨舟" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.9.11" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 2.9.11" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 20" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 20" "$PLIST"
+          # 「系统界面用哪种语言」看的是「这个 App 声明支持哪些语言」，不是手机语言。
+          # 以前只有 en + Base.lproj，所以手机明明是中文，WKWebView 长按菜单里的
+          # 「拷贝 / 粘贴 / 全选 / 查询」和系统那条「允许粘贴」弹窗也全是英文。
+          # 声明 zh-Hans 之后系统才按中文渲染这些菜单。
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDevelopmentRegion zh-Hans" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleDevelopmentRegion string zh-Hans" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleLocalizations" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:0 string zh-Hans" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:1 string en" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.9.15" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 2.9.15" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 21" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 21" "$PLIST"
           # 导出 txt：写完文件要能在「文件」App 里看到（我的 iPhone → 墨舟）
           /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" "$PLIST"
