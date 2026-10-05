@@ -299,7 +299,7 @@ window.MZBook = (function () {
       });
       l.appendChild(li({
         title: '第 ' + c.idx + ' 章　' + (c.title || ''),
-        sub: fmtNum(c.chars || 0) + ' 字' + (c.updated_at ? ' · ' + timeAgo(c.updated_at) : ''),
+        sub: fmtNum(c.chars || 0) + ' 字' + (c.updated_at ? ' · ' + timeAgo(c.updated_at) : '') + (c.source === 'demo' ? ' · 演示' : ''),
         right: h('div.row', { style: { gap: '7px' } },
           sc === undefined || sc === null ? null : chip(String(Math.round(sc)), sc >= 75 ? 'ok' : (sc >= 55 ? '' : 'bad')),
           more),
