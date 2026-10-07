@@ -260,14 +260,7 @@
           out.appendChild(MZUI.liveHero(A.state.live, { maxEvents: 4 }));
         }
 
-        /* ---- 使用的模型：勾几个就调几个，谁干什么由 App 自动分配 ---- */
-        out.appendChild(h('div.section-title', null,
-          h('span', { text: '使用的模型' }),
-          h('span.sp', { text: '勾几个就调几个' })));
-        const ml = h('div.list.models');
-        MODELS.forEach(function (k) { ml.appendChild(modelPickRow(k)); });
-        out.appendChild(card(null, null, [ml]));
-        out.appendChild(roleCard());
+        out.appendChild(writingCard());
 
         /* ---- 用量 ---- */
         const u = hero.usage || {};
@@ -288,26 +281,6 @@
             + (u.elapsed_ms ? ' · 耗时 ' + fmtDur(Math.round((u.elapsed_ms || 0) / 1000)) : '') }));
           out.appendChild(uc);
         }
-
-        /* ---- 写作设置（跟电脑端设置页同一套项，改完立即生效） ---- */
-        const wl = h('div.list');
-        wl.appendChild(pickRow('写作策略', '默认按每本书自己的设置', strategyWord(settings), STRATEGY_ITEMS,
-          'gen_strategy', function (v) { saveSetting('gen_strategy', v, '写作策略已更新'); }, 'target'));
-        wl.appendChild(pickRow('模型调用并发', '撞限流会自动退回一个个来', concWord(settings), CONC_ITEMS,
-          'llm_concurrency', function (v) { saveSetting('llm_concurrency', v, '调用并发已更新'); }, 'bolt'));
-        wl.appendChild(pickRow('单章失败自动重试', '写崩了自动再试几次', (settings.auto_retry || '2') + ' 次', RETRY_ITEMS,
-          'auto_retry', function (v) { saveSetting('auto_retry', v, '重试次数已更新'); }, 'refresh'));
-        wl.appendChild(pickRow('并发写书数', '无人值守续写时同时写几本', (settings.gen_workers || '2') + ' 本', BOOK_WORKER_ITEMS,
-          'gen_workers', function (v) { saveSetting('gen_workers', v, '并发写书数已更新'); }, 'layers'));
-        wl.appendChild(swRow('快速模式', '跳过模型深度去AI化，只做规则清洗，快很多',
-          settings.fast_mode === '1', flagSetting('fast_mode', '快速模式'), 'fire'));
-        wl.appendChild(swRow('字数不达标自动补写', '推荐开着，免得每章都差几百字',
-          settings.quality_gate === '1', flagSetting('quality_gate', '自动补写'), 'plus'));
-        wl.appendChild(swRow('每章写完自动更新前情摘要', '关掉更省钱，但前后连贯性会下降',
-          settings.summary_update === '1', flagSetting('summary_update', '前情摘要'), 'history'));
-        wl.appendChild(swRow('本地演示模式', '不调用模型，用样例文本跑通全流程，用来试操作',
-          settings.demo_mode === '1', flagSetting('demo_mode', '演示模式'), 'play'));
-        out.appendChild(card('写作设置', h('span', { text: '改完立即生效' }), [wl]));
 
         /* ---- 质检设置 ---- */
         const ql = h('div.list');
@@ -924,7 +897,7 @@
     return n ? (n + ' 条') : dft;
   }
 
-  /* ---- 「使用的模型」块 ---- */
+  /* ---- 模型勾选行（写作分工卡片里的第一块） ---- */
   function modelPickRow(k) {
     const s = settingsOf();
     const on = splitModels(s.selected_models).indexOf(k) >= 0;
@@ -962,33 +935,57 @@
     const ok = await putSettings(patch, mLabel(k) + (has ? ' 已取消' : ' 已勾选'));
     if (ok) A.render();
   }
-  function roleCard() {
-    const s = settingsOf();
-    const sel = splitModels(s.selected_models);
+  function writingCard() {
+    const settings = settingsOf();
+    const sel = splitModels(settings.selected_models);
     const auto = assignRoles(sel);
-    const cust = parseRoles(s.model_roles, sel);
+    const cust = parseRoles(settings.model_roles, sel);
     const eff = {};
     ROLE_ORDER.forEach(function (k) { eff[k] = cust[k] || auto[k]; });
     const c = h('div.card');
     c.appendChild(h('div.card-head', null,
-      h('h3', { text: '谁干什么' }),
+      h('h3', { text: '写作分工' }),
       h('span.sp', null, chip(sel.length >= 2 ? ('勾了 ' + sel.length + ' 个模型')
         : (sel.length ? '1 个模型' : '还没勾模型'), sel.length >= 2 ? 'ok' : 'warn'))));
-    /* 跟电脑端一样：只看勾了几个模型。
+    /* 一、勾模型（和电脑端的勾选框一对一） */
+    const ml = h('div.list.models');
+    MODELS.forEach(function (k) { ml.appendChild(modelPickRow(k)); });
+    c.appendChild(ml);
+    c.appendChild(h('div.footnote', { text: '勾选的模型会按角色分工（策划 / 写作 / 审查 / 润色）协作；勾了 DeepSeek 就由 DeepSeek 主写' }));
+    /* 二、谁干什么：跟电脑端一样，只看勾了几个模型。
        勾 2 ~ 3 个才能自己分工；只勾 1 个就是它一个人全包，不给下拉。 */
-    if (sel.length <= 1) {
+    if (sel.length >= 2) {
+      const l = h('div.list');
+      ROLE_ORDER.forEach(function (k) {
+        l.appendChild(li({ title: ROLE_LABEL[k], right: roleSelect(k, sel, eff) }));
+      });
+      c.appendChild(l);
+      c.appendChild(h('div.footnote', { text: '自己定谁干什么；不动就是系统默认（勾了 DeepSeek 就由它主写）' }));
+    } else {
       c.appendChild(h('div.footnote', { text: sel.length
         ? ('只勾了 1 个模型：策划、写作、审查、润色全交给 ' + mLabel(eff.write)
            + ' 一个人干，再勾一个模型就能分工。')
         : '还没勾任何模型：至少勾一个才能写。' }));
-      return c;
     }
-    const l = h('div.list');
-    ROLE_ORDER.forEach(function (k) {
-      l.appendChild(li({ title: ROLE_LABEL[k], right: roleSelect(k, sel, eff) }));
-    });
-    c.appendChild(l);
-    c.appendChild(h('div.footnote', { text: '自己定谁干什么；不动就是系统默认（勾了 DeepSeek 就由它主写）' }));
+    /* 三、写作策略等（电脑端同一张卡片里的那一组） */
+    const wl = h('div.list');
+    wl.appendChild(pickRow('写作策略', '默认按每本书自己的设置', strategyWord(settings), STRATEGY_ITEMS,
+      'gen_strategy', function (v) { saveSetting('gen_strategy', v, '写作策略已更新'); }, 'target'));
+    wl.appendChild(pickRow('模型调用并发', '撞限流会自动退回一个个来', concWord(settings), CONC_ITEMS,
+      'llm_concurrency', function (v) { saveSetting('llm_concurrency', v, '调用并发已更新'); }, 'bolt'));
+    wl.appendChild(pickRow('单章失败自动重试', '写崩了自动再试几次', (settings.auto_retry || '2') + ' 次', RETRY_ITEMS,
+      'auto_retry', function (v) { saveSetting('auto_retry', v, '重试次数已更新'); }, 'refresh'));
+    wl.appendChild(pickRow('并发写书数', '无人值守续写时同时写几本', (settings.gen_workers || '2') + ' 本', BOOK_WORKER_ITEMS,
+      'gen_workers', function (v) { saveSetting('gen_workers', v, '并发写书数已更新'); }, 'layers'));
+    wl.appendChild(swRow('快速模式', '跳过模型深度去AI化，只做规则清洗，快很多',
+      settings.fast_mode === '1', flagSetting('fast_mode', '快速模式'), 'fire'));
+    wl.appendChild(swRow('字数不达标自动补写', '推荐开着，免得每章都差几百字',
+      settings.quality_gate === '1', flagSetting('quality_gate', '自动补写'), 'plus'));
+    wl.appendChild(swRow('每章写完自动更新前情摘要', '关掉更省钱，但前后连贯性会下降',
+      settings.summary_update === '1', flagSetting('summary_update', '前情摘要'), 'history'));
+    wl.appendChild(swRow('本地演示模式', '不调用模型，用样例文本跑通全流程，用来试操作',
+      settings.demo_mode === '1', flagSetting('demo_mode', '演示模式'), 'play'));
+    c.appendChild(wl);
     return c;
   }
 
