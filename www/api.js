@@ -605,6 +605,7 @@ window.MZ = (function () {
     help: '<circle cx="12" cy="12" r="8.4"/><path d="M9.6 9.6a2.4 2.4 0 1 1 3.4 2.2c-.6.4-1 .9-1 1.6v.5"/><circle cx="12" cy="17.1" r=".9"/>',
     git: '<circle cx="6.4" cy="6.4" r="2.6"/><circle cx="6.4" cy="17.6" r="2.6"/><circle cx="17.6" cy="9.6" r="2.6"/><path d="M6.4 9v6M9 6.4h4.2a4.4 4.4 0 0 1 4.4 4.4v3.4"/>',
     dot: '<circle cx="12" cy="12" r="3"/>',
+    wallet: '<rect x="3.8" y="6.6" width="16.4" height="11.4" rx="2.6"/><path d="M3.8 10.6h5.6"/><circle cx="16.4" cy="12.3" r="1.2"/>',
     /* 三个模型的品牌标：实心，配 .li-ico.mk-* 的品牌底色（见 style.css）。
        豆包 = 一颗豆子、MiMo = 折线 M、DeepSeek = 鲸鱼。 */
     m_doubao: '<path fill="currentColor" stroke="none" d="M11.2 4.5C7.3 5 4.4 8.3 4.4 12.4c0 4.1 2.9 7.4 6.8 7.9z"/><path fill="currentColor" stroke="none" d="M12.8 4.5c3.9.5 6.8 3.8 6.8 7.9 0 4.1-2.9 7.4-6.8 7.9z"/>',
