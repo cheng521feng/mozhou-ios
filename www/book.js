@@ -143,6 +143,8 @@ window.MZBook = (function () {
       nv = (d && d.novel) || {};
     } catch (e) { /* 详情拿不到也不影响上面的按钮 */ }
     out.appendChild(summaryCard(n, nv));
+    out.appendChild(bibleCard(n, nv));
+    out.appendChild(foreshadowCard(n, nv));
     out.appendChild(chaptersCard(nid, nv));
     return out;
   }
@@ -445,6 +447,11 @@ window.MZBook = (function () {
             try {
               await api.put('/api/novel/' + n.id + '/meta', { outline: outline, characters: r.characters || '' });
               if ((r.intro || '').trim()) await api.put('/api/novel/' + n.id, { intro: r.intro });
+              if (r.foreshadows && r.foreshadows.length) {
+                /* 大纲里顺带提取的待埋伏笔，直接写进伏笔清单 */
+                try { await api.post('/api/novel/' + n.id + '/foreshadows', { items: r.foreshadows }); }
+                catch (e) { /* 伏笔落库失败不影响大纲采纳 */ }
+              }
               bs.close();
               toast('已写进这本书的设定', 'ok');
               haptic('success');
@@ -599,6 +606,92 @@ window.MZBook = (function () {
         }
       },
     });
+  }
+
+  /* ---------- 故事Bible：长篇一致性档案（每 5 章自动浓缩，≤800 字） ---------- */
+  function bibleCard(n, nv) {
+    const ta = h('textarea.inp', { rows: '8', spellcheck: 'false',
+      placeholder: '还没有故事Bible：写满几章后点下面「重建」，或连续写下去，每 5 章会自动浓缩一次' });
+    ta.value = nv.bible || '';
+    const box = h('div.card');
+    box.appendChild(h('div.card-head', null, h('h3', { text: '故事Bible' }),
+      h('span.sp', { text: nv.bible_at ? ('已浓缩到第 ' + nv.bible_at + ' 章') : '每 5 章自动更新' })));
+    box.appendChild(h('div.small.muted', { text: '人物当前状态 / 核心设定 / 已埋伏笔 / 已填坑 / 最近剧情，浓缩在 800 字以内。补更和重写都会自动带上它，比只喂前情摘要更不容易崩设定。' }));
+    box.appendChild(ta);
+    box.appendChild(buttons([
+      { label: '保存', onTap: async function () {
+        try { await api.put('/api/novel/' + n.id, { bible: ta.value }); toast('故事Bible 已保存', 'ok'); }
+        catch (e) { toast(e.message, 'bad'); }
+      } },
+      { label: '重建', tone: 'blue', onTap: async function () {
+        const ok = await confirm('让 AI 按已写章节重写故事Bible？上面这段会被覆盖。', { okText: '重建' });
+        if (!ok) return;
+        const bs = busySheet('AI 正在浓缩故事Bible…');
+        try {
+          const r = await api.post('/api/novel/' + n.id + '/bible/rebuild', {}, { timeout: 300000 });
+          bs.close();
+          if (r && r.bible) ta.value = r.bible;
+          toast('故事Bible 已重建', 'ok');
+          haptic('success');
+        } catch (e) { bs.close(); toast(e.message, 'bad'); }
+      } },
+    ]));
+    return box;
+  }
+
+  /* ---------- 伏笔清单：novel.foreshadows（大纲生成时提取，AI 填坑后自动划掉） ---------- */
+  function foreshadowCard(n) {
+    const box = h('div.card');
+    box.appendChild(h('div.card-head', null, h('h3', { text: '伏笔' }),
+      h('span.sp', { text: '点一条可手动划掉 / 恢复' })));
+    const stat = h('div.small.muted');
+    const listBox = h('div');
+    box.appendChild(stat);
+    box.appendChild(listBox);
+
+    async function paint() {
+      let items = [], open = 0, done = 0;
+      try {
+        const d = await api.get('/api/novel/' + n.id + '/foreshadows');
+        items = (d && d.items) || [];
+        open = (d && d.open) || 0;
+        done = (d && d.done) || 0;
+      } catch (e) { /* 取不到就先空着，下面给引导 */ }
+      clear(listBox);
+      stat.textContent = items.length
+        ? ('共 ' + items.length + ' 条 · 未填 ' + open + ' · 已填 ' + done)
+        : '还没有伏笔清单：先用「AI 根据书名写大纲」生成大纲，再点下面「从大纲提取」。';
+      if (items.length) {
+        const l = h('div.list');
+        items.forEach(function (x) {
+          const filled = x.status === '已填';
+          l.appendChild(li({
+            title: (filled ? '✓ ' : '· ') + (x.name || '伏笔'),
+            sub: [x.planted, x.note, filled && x.filled ? ('回收：' + x.filled) : ''].filter(Boolean).join(' · '),
+            right: chip(filled ? '已填' : '未填', filled ? 'ok' : 'amber'),
+            onTap: async function () {
+              try {
+                await api.post('/api/novel/' + n.id + '/foreshadows', { name: x.name, status: filled ? '未填' : '已填' });
+                paint();
+              } catch (e) { toast(e.message, 'bad'); }
+            },
+          }));
+        });
+        listBox.appendChild(l);
+      }
+      listBox.appendChild(buttons([
+        { label: '从大纲提取', tone: 'blue', onTap: async function () {
+          const bs = busySheet('AI 正在从大纲里提伏笔…');
+          try {
+            await api.post('/api/novel/' + n.id + '/foreshadows', { build: true }, { timeout: 300000 });
+            bs.close(); toast('伏笔清单已更新', 'ok'); haptic('success'); paint();
+          } catch (e) { bs.close(); toast(e.message, 'bad'); }
+        } },
+        { label: 'AI 梳理台账', onTap: function () { foreshadow(n); } },
+      ]));
+    }
+    paint();
+    return box;
   }
 
   /* ---------- AI 爆款化书名 / 简介 ---------- */
