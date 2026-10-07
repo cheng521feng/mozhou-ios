@@ -24,63 +24,80 @@
    2) 给「确定带 home 指示条」的机型钉一个下限（iPhone X 及以后竖屏逻辑高度 812
       起；无 home 键的 iPad 是 20）。万一 env() 一直报 0，底栏也不会骑上去。
       只在整屏显示（装机壳 / 加到主屏幕 / 全屏）时钉；手机浏览器带着上下工具栏时
-      不钉 —— 那种情况 Safari 自己已经让开了，钉下限反而多出一块空白。 */
+      不钉 —— 那种情况 Safari 自己已经让开了，钉下限反而多出一块空白。
+
+   整块包在 try 里、rAF 也做了兜底：读不到安全区（老 WebView、测试用的假 DOM、
+   没有 screen）绝不能抛出去 —— app.js 一抛就是白屏，代价远大于「底栏高一点」。 */
 
 (function () {
-  const D = document.documentElement;
-  const probe = document.createElement('div');
-  probe.setAttribute('aria-hidden', 'true');
-  probe.style.cssText =
-    'position:fixed;left:-2px;bottom:-2px;width:1px;height:1px;visibility:hidden;' +
-    'pointer-events:none;padding-top:env(safe-area-inset-top,0px);' +
-    'padding-bottom:env(safe-area-inset-bottom,0px)';
+  try {
+    const D = document.documentElement;
+    const probe = document.createElement('div');
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.cssText =
+      'position:fixed;left:-2px;bottom:-2px;width:1px;height:1px;visibility:hidden;' +
+      'pointer-events:none;padding-top:env(safe-area-inset-top,0px);' +
+      'padding-bottom:env(safe-area-inset-bottom,0px)';
 
-  function readInset() {
-    if (!probe.parentNode) D.appendChild(probe);
-    const cs = getComputedStyle(probe);
-    return { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0 };
-  }
-  /* 整屏显示才钉下限：Safari 带工具栏时 innerHeight 明显小于屏高 */
-  function fullscreen() {
-    if (window.navigator.standalone) return true;
-    const sh = Math.max(screen.width || 0, screen.height || 0);
-    const ih = Math.max(window.innerWidth || 0, window.innerHeight || 0);
-    return !!sh && ih >= sh - 24;
-  }
-  /* 带 home 指示条的机型：iPhone X 起最矮也有 812（竖屏逻辑高度）；
-     iPadOS 13 起 UA 报 Macintosh，用「多点触控 + 屏高」认出来（真 Mac 恒为 0）。 */
-  function btn() {
-    const w = Math.min(screen.width || 0, screen.height || 0);
-    const h = Math.max(screen.width || 0, screen.height || 0);
-    if (h < 812 || w < 375) return 0;
-    const portrait = (window.innerHeight || 0) >= (window.innerWidth || 0);
-    if (/iPhone|iPod/i.test(navigator.userAgent)) return portrait ? 34 : 21;
-    if (/iPad/i.test(navigator.userAgent)) return 20;
-    if (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) return 20;
-    return 0;
-  }
-  let raf = 0;
-  function apply() {
-    raf = 0;
-    const v = readInset();
-    const fb = fullscreen() ? btn() : 0;
-    const portrait = (window.innerHeight || 0) >= (window.innerWidth || 0);
-    D.style.setProperty('--safe-t', Math.max(v.t, (fb && portrait) ? 44 : 0) + 'px');
-    D.style.setProperty('--safe-b', Math.max(v.b, fb) + 'px');
-  }
-  function sync() { if (!raf) raf = requestAnimationFrame(apply); }
+    function readInset() {
+      if (!probe.parentNode) D.appendChild(probe);
+      const cs = getComputedStyle(probe);
+      return { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0 };
+    }
+    /* 屏的物理尺寸（CSS 逻辑像素）。screen 都没有的环境按 0 处理，一律不钉下限。 */
+    function screenSize() {
+      if (typeof screen === 'undefined' || !screen) return { w: 0, h: 0 };
+      const a = screen.width || 0, b = screen.height || 0;
+      return { w: Math.min(a, b), h: Math.max(a, b) };
+    }
+    /* 整屏显示才钉下限：Safari 带工具栏时 innerHeight 明显小于屏高 */
+    function fullscreen() {
+      if (window.navigator.standalone) return true;
+      const s = screenSize();
+      const ih = Math.max(window.innerWidth || 0, window.innerHeight || 0);
+      return !!s.h && ih >= s.h - 24;
+    }
+    /* 带 home 指示条的机型：iPhone X 起最矮也有 812（竖屏逻辑高度）；
+       iPadOS 13 起 UA 报 Macintosh，用「多点触控 + 屏高」认出来（真 Mac 恒为 0）。 */
+    function btn() {
+      const s = screenSize();
+      if (s.h < 812 || s.w < 375) return 0;
+      const portrait = (window.innerHeight || 0) >= (window.innerWidth || 0);
+      const ua = navigator.userAgent || '';
+      if (/iPhone|iPod/i.test(ua)) return portrait ? 34 : 21;
+      if (/iPad/i.test(ua)) return 20;
+      if ((navigator.maxTouchPoints || 0) > 1 && /Macintosh/i.test(ua)) return 20;
+      return 0;
+    }
+    let raf = 0;
+    function apply() {
+      raf = 0;
+      const v = readInset();
+      const fb = fullscreen() ? btn() : 0;
+      const portrait = (window.innerHeight || 0) >= (window.innerWidth || 0);
+      D.style.setProperty('--safe-t', Math.max(v.t, (fb && portrait) ? 44 : 0) + 'px');
+      D.style.setProperty('--safe-b', Math.max(v.b, fb) + 'px');
+    }
+    function sync() {
+      if (raf) return;
+      if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(apply);
+      else apply();
+    }
 
-  sync();
-  window.addEventListener('resize', sync);
-  window.addEventListener('pageshow', sync);
-  window.addEventListener('orientationchange', function () {
-    sync(); setTimeout(sync, 260); setTimeout(sync, 700);
-  });
-  window.addEventListener('load', function () {
-    sync(); setTimeout(sync, 320); setTimeout(sync, 1200);
-  });
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', sync);
-  setTimeout(sync, 0); setTimeout(sync, 400); setTimeout(sync, 1500);
+    sync();
+    window.addEventListener('resize', sync);
+    window.addEventListener('pageshow', sync);
+    window.addEventListener('orientationchange', function () {
+      sync(); setTimeout(sync, 260); setTimeout(sync, 700);
+    });
+    window.addEventListener('load', function () {
+      sync(); setTimeout(sync, 320); setTimeout(sync, 1200);
+    });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', sync);
+    setTimeout(sync, 0); setTimeout(sync, 400); setTimeout(sync, 1500);
+  } catch (e) {
+    /* 静默放弃：布局照旧吃 CSS 里的 env() 兜底值 */
+  }
 })();
 
 window.MZApp = (function () {
