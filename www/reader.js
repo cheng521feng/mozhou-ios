@@ -241,11 +241,18 @@ window.MZReader = (function () {
     rd.wrap.style.setProperty('--rd-font', p.ft.css);
   }
 
+  /* 当前生效的底部安全区（app.js 会把 env() 读出来写进 --safe-b） */
+  function safeBottom() {
+    const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-b'));
+    return isFinite(v) && v > 0 ? v : 0;
+  }
   /* 任务条是 body 级的 fixed 条，抬到阅读器底栏上面，别把「目录 / 设置」盖住 */
   function syncDock() {
     if (!rd) return;
     const hgt = rd.el.bot.getBoundingClientRect().height || 0;
-    const px = uiVisible() ? (hgt + 10) : 14;
+    /* 菜单收起来时底栏也没了，但底下还有一条 home 指示条：离底至少留出安全区，
+       不然任务条会贴在屏幕最下沿（看着就是「位置过于靠下」）。 */
+    const px = uiVisible() ? (hgt + 10) : Math.max(safeBottom() + 12, 14);
     document.documentElement.style.setProperty('--dock-bottom', Math.round(px) + 'px');
   }
   function onResize() { syncDock(); }
