@@ -1327,6 +1327,55 @@ window.MZEditor = (function () {
       await load();
     }
 
+    /* 「历史版本」对比：把某一版和当前正文逐行比出来，看清楚改了什么再决定回不回滚 */
+    const _diffBase = {
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '12.5px',
+      lineHeight: '1.55', padding: '3px 8px', borderRadius: '6px',
+      whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: '2px',
+    };
+    const _diffDel = Object.assign({}, _diffBase, { background: 'rgba(220,60,60,.10)', color: '#b3261e' });
+    const _diffAdd = Object.assign({}, _diffBase, { background: 'rgba(30,160,90,.12)', color: '#0f6b3c' });
+    const _diffDim = Object.assign({}, _diffBase, { color: 'var(--muted)', opacity: '.75' });
+
+    function versionDiffSheet(v) {
+      const sb = sheet({
+        title: '对比 · ' + (v.title || ('版本 #' + v.id)),
+        build: function (b) {
+          b.appendChild(loadingBox('对比中…'));
+          api.get('/api/version/' + v.id + '/diff').then(function (r) {
+            clear(b);
+            b.appendChild(li({
+              ico: 'history', title: '这一版',
+              sub: [r.version.created_at || '', r.version.chars ? fmtNum(r.version.chars) + ' 字' : '',
+                    r.version.reason || r.version.source || ''].filter(Boolean).join(' · '),
+            }));
+            b.appendChild(li({ ico: 'edit', title: '当前正文', sub: fmtNum(r.current.chars) + ' 字' }));
+            b.appendChild(h('div.fld-hint', {
+              text: '红色是「这一版有、现在没了」，绿色是「现在比这一版多出来的」；'
+                + '去掉 ' + (r.removed || 0) + ' 段、新增 ' + (r.added || 0) + ' 段。',
+            }));
+            const dbox = h('div');
+            const ops = (r.ops || []).slice(0, 120);
+            ops.forEach(function (op) {
+              if (op.before && op.before.length) dbox.appendChild(h('div', { text: '  ' + op.before[0], style: _diffDim }));
+              (op.old || []).forEach(function (t) { dbox.appendChild(h('div', { text: '- ' + t, style: _diffDel })); });
+              (op.new || []).forEach(function (t) { dbox.appendChild(h('div', { text: '+ ' + t, style: _diffAdd })); });
+              if (op.after && op.after.length) dbox.appendChild(h('div', { text: '  ' + op.after[0], style: _diffDim }));
+            });
+            if (!ops.length) dbox.appendChild(h('div', { text: '这一版和当前正文一模一样', style: _diffDim }));
+            if (r.truncated || (r.ops || []).length > 120) {
+              dbox.appendChild(h('div', { text: '…改动太多，只画了前 120 处', style: _diffDim }));
+            }
+            b.appendChild(dbox);
+            b.appendChild(buttons([
+              { label: '回滚到这一版', tone: 'primary', onTap: function () { sb.close(); guard(restoreVersion(v.id)); } },
+              { label: '只看不动', onTap: function () { sb.close(); } },
+            ]));
+          }).catch(function (e) { clear(b); b.appendChild(errBox(e)); });
+        },
+      });
+    }
+
     function moreActions() {
       actions([
         { label: '用阅读器读这一章', sub: '沉浸阅读，左右翻章', icon: 'book', onPick: function () { guard(goRead()); } },
@@ -1500,12 +1549,13 @@ window.MZEditor = (function () {
               ico: 'history',
               title: v.title || ('版本 #' + v.id),
               sub: [v.created_at ? fmtDate(v.created_at) : '', v.chars ? fmtNum(v.chars) + ' 字' : '', v.source || v.reason || ''].filter(Boolean).join(' · '),
-              right: chip('回滚', '', 'history'),
-              onTap: function () { guard(restoreVersion(v.id)); },
+              right: chip('对比', '', 'history'),
+              onTap: function () { versionDiffSheet(v); },
             }));
           });
           pane.appendChild(l);
-          pane.appendChild(noteNode('回滚前当前正文会先存档，随时能再切回来。'));
+          pane.appendChild(noteNode('点一条看「这一版 vs 现在」的逐行对比，想用就一键回滚；'
+            + '回滚前当前正文也会先存档，随时能再切回来。每章最多留最近 10 版。'));
         }).catch(function (e) { clear(pane); pane.appendChild(errBox(e)); });
         return;
       }
