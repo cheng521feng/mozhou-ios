@@ -10,6 +10,79 @@
    ========================================================================== */
 'use strict';
 
+/* ============================== 视口 / 安全区 ==============================
+   iOS 的 WKWebView 冷启动有个已知毛病：页面第一次布局时 env(safe-area-inset-*)
+   可能报回来 0，而且这一整个会话都不再自己更新。底部标签栏、全局任务条都是按
+   var(--safe-b) 定位的，于是就贴到屏幕最下沿、骑在 home 指示条那一条上 ——
+   用户的原话是「dock 栏位置过于靠下」；把 App 关掉重开，下一次侥幸拿到正确的值
+   就正常了，所以症状是「时好时坏，重开就好」。
+
+   这里做两件事：
+   1) 用探针元素把当前真正生效的 env() 读出来，主动写回 --safe-t / --safe-b，
+      并在首帧 / load / resize / 转屏 / visualViewport 变化时重读。系统只要后来
+      报对了，界面自己就跟上，不用重开 App。
+   2) 给「确定带 home 指示条」的机型钉一个下限（iPhone X 及以后竖屏逻辑高度 812
+      起；无 home 键的 iPad 是 20）。万一 env() 一直报 0，底栏也不会骑上去。
+      只在整屏显示（装机壳 / 加到主屏幕 / 全屏）时钉；手机浏览器带着上下工具栏时
+      不钉 —— 那种情况 Safari 自己已经让开了，钉下限反而多出一块空白。 */
+
+(function () {
+  const D = document.documentElement;
+  const probe = document.createElement('div');
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.cssText =
+    'position:fixed;left:-2px;bottom:-2px;width:1px;height:1px;visibility:hidden;' +
+    'pointer-events:none;padding-top:env(safe-area-inset-top,0px);' +
+    'padding-bottom:env(safe-area-inset-bottom,0px)';
+
+  function readInset() {
+    if (!probe.parentNode) D.appendChild(probe);
+    const cs = getComputedStyle(probe);
+    return { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0 };
+  }
+  /* 整屏显示才钉下限：Safari 带工具栏时 innerHeight 明显小于屏高 */
+  function fullscreen() {
+    if (window.navigator.standalone) return true;
+    const sh = Math.max(screen.width || 0, screen.height || 0);
+    const ih = Math.max(window.innerWidth || 0, window.innerHeight || 0);
+    return !!sh && ih >= sh - 24;
+  }
+  /* 带 home 指示条的机型：iPhone X 起最矮也有 812（竖屏逻辑高度）；
+     iPadOS 13 起 UA 报 Macintosh，用「多点触控 + 屏高」认出来（真 Mac 恒为 0）。 */
+  function btn() {
+    const w = Math.min(screen.width || 0, screen.height || 0);
+    const h = Math.max(screen.width || 0, screen.height || 0);
+    if (h < 812 || w < 375) return 0;
+    const portrait = (window.innerHeight || 0) >= (window.innerWidth || 0);
+    if (/iPhone|iPod/i.test(navigator.userAgent)) return portrait ? 34 : 21;
+    if (/iPad/i.test(navigator.userAgent)) return 20;
+    if (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) return 20;
+    return 0;
+  }
+  let raf = 0;
+  function apply() {
+    raf = 0;
+    const v = readInset();
+    const fb = fullscreen() ? btn() : 0;
+    const portrait = (window.innerHeight || 0) >= (window.innerWidth || 0);
+    D.style.setProperty('--safe-t', Math.max(v.t, (fb && portrait) ? 44 : 0) + 'px');
+    D.style.setProperty('--safe-b', Math.max(v.b, fb) + 'px');
+  }
+  function sync() { if (!raf) raf = requestAnimationFrame(apply); }
+
+  sync();
+  window.addEventListener('resize', sync);
+  window.addEventListener('pageshow', sync);
+  window.addEventListener('orientationchange', function () {
+    sync(); setTimeout(sync, 260); setTimeout(sync, 700);
+  });
+  window.addEventListener('load', function () {
+    sync(); setTimeout(sync, 320); setTimeout(sync, 1200);
+  });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', sync);
+  setTimeout(sync, 0); setTimeout(sync, 400); setTimeout(sync, 1500);
+})();
+
 window.MZApp = (function () {
   const { h, frag, add, clear, $, $$, api, toast, sheet, actions, modal, confirm, haptic,
           fmtNum, fmtWords, fmtDur, fmtDate, timeAgo, debounce, sleep, emptyBox, loadingBox, errBox,
@@ -465,6 +538,12 @@ window.MZApp = (function () {
      最后一次性换上去：中途高度不会塔，滚动位置也不会被浏览器夹回页首。 */
   async function render(opts) {
     opts = opts || {};
+    /* 换页时把写作台 / 阅读器留下的「任务条抬升」清掉：那是给它们自己的
+       fixed 工具条让位用的，带回别的页会让任务条停在一个不属于这里的离底
+       距离上（太高或太低都见过），严重时只能重开 App 才正常。 */
+    if (!document.querySelector('.ed-wrap') && !document.querySelector('.rd-wrap')) {
+      document.documentElement.style.removeProperty('--dock-bottom');
+    }
     const main = $('#main');
     if (!main) return;
     const s = state.stack.length ? state.stack[state.stack.length - 1] : (screens[state.tab] && screens[state.tab]());
