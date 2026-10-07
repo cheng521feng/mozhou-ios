@@ -228,6 +228,9 @@
 
         /* ---- 我的资料（头像 / 用户名 / 性别 / 年龄） ---- */
         out.appendChild(profileCard());
+        /* ---- 钱包与订阅：白名单会员也进得来，只是不给充值入口 ---- */
+        await loadBill();
+        out.appendChild(billEntryCard());
 
         /* ---- 账号与同步 ---- */
         const acct = h('div.card');
@@ -1086,6 +1089,219 @@
     }));
     c.appendChild(h('div.footnote', { text: '选「跟随系统」时，手机在设置里切深色 / 浅色，App 会立刻跟着换，不用再手动调一次。' }));
     return c;
+  }
+
+  /* ============================== 钱包与订阅 ==============================
+     1 墨币 = 0.01 元。数字全部来自 /api/billing/*，界面不写死。
+     永久会员（白名单账号）一样进得来：看得到会员身份、价目和用量，只是不出现充值按钮。 */
+  const BILL_CHARGE_ST = { charged: ['已扣费', ''], vip: ['会员免费', 'ok'], free: ['免计费', ''],
+                           refunded: ['已退款', 'warn'], failed: ['未扣费', 'bad'] };
+  const BILL_KIND = { signup: '注册赠送', recharge: '充值', charge: '扣费',
+                      refund: '退款', admin_adjust: '后台调整' };
+
+  function bNum(v) {
+    const n = Math.round((Number(v) || 0) * 100) / 100;
+    const s = (n === Math.round(n)) ? String(Math.round(n)) : n.toFixed(2);
+    return s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  function bYuan(coins, per) { return ((Number(coins) || 0) / (Number(per) || 100)).toFixed(2); }
+  function bWhen(s) { return String(s || '').slice(5, 16); }
+
+  async function loadBill() {
+    try { A.state.bill = await api.get('/api/billing/status'); }
+    catch (e) { A.state.bill = null; }
+  }
+
+  function billEntryCard() {
+    const b = A.state.bill;
+    let sub = '余额、套餐与用量';
+    let right = null;
+    if (b && b.permanent_vip) {
+      sub = '永久会员 · 全部功能免费，任务走 VIP 优先队列';
+      right = chip('永久会员', 'ok');
+    } else if (b) {
+      right = h('span.num', { text: bNum(b.balance) + ' 墨币' });
+      sub = (b.subscription && b.subscription.remaining >= 0)
+        ? (b.subscription.label + '套餐 · 本月还剩 ' + b.subscription.remaining + ' 章')
+        : ('余额 ≈ ' + bYuan(b.balance, b.coin_per_yuan) + ' 元，按量计费');
+    }
+    return card('钱包与订阅', null, [h('div.list', null,
+      li({ ico: 'wallet', title: '钱包与订阅', sub: sub, right: right, arrow: true,
+           onTap: function () { A.push(billScreen()); } }))]);
+  }
+
+  function billHead(st, per) {
+    const vip = !!st.permanent_vip;
+    const sub = st.subscription || null;
+    const box = h('div.card');
+    box.appendChild(h('div.card-head', null, h('h3', { text: '账户状态' }),
+      h('span.sp', { text: vip ? '永久会员' : (st.enrolled ? '已开通计费' : '未开通计费 · 当前不扣费') })));
+    if (vip) {
+      box.appendChild(h('div.vipbox', null,
+        h('b', { text: '永久会员' }),
+        h('span', { text: '全部功能免费、不扣墨币，任务走 VIP 优先队列。' })));
+    }
+    const kpis = A.kpi([
+      { label: '墨币余额', value: bNum(st.balance), unit: ' 墨币',
+        tone: vip ? 'accent' : (st.balance > 0 ? 'accent' : 'bad') },
+      { label: '订阅剩余', value: sub ? String(sub.remaining) : '—', unit: sub ? ' 章' : '' },
+    ]);
+    kpis.classList.add('k2');
+    box.appendChild(kpis);
+    box.appendChild(h('div.footnote', { text: '1 墨币 = 0.01 元 · 余额 ≈ ' + bYuan(st.balance, per)
+      + ' 元 · 失败任务自动全额退款' }));
+    return box;
+  }
+
+  function billTiers(pr) {
+    const grid = h('div.tiers');
+    (pr.tiers || []).forEach(function (t, i) {
+      const total = (t.coins || 0) + (t.bonus || 0);
+      const btn = h('button.tier', { type: 'button' },
+        h('span.t-yuan', { text: t.yuan + ' 元' }),
+        h('span.t-coins', null, h('b', { text: bNum(total) }), h('i', { text: '墨币' })),
+        h('span.t-bonus', { text: t.bonus ? ('送 ' + bNum(t.bonus)) : '无赠送' }));
+      btn.addEventListener('click', function () {
+        haptic('light');
+        billOrder('recharge', { tier: i, channel: 'wechat' },
+          '充值 ' + t.yuan + ' 元 → ' + bNum(total) + ' 墨币');
+      });
+      grid.appendChild(btn);
+    });
+    return card('充值墨币', '长期有效 · 不清零', [grid,
+      h('div.footnote', { text: '注册直接送 ' + bNum(pr.signup_bonus || 0)
+        + ' 墨币。支付渠道接入前，下单后把订单号交给管理员确认到账。' })]);
+  }
+
+  function billPlans(pr, onChange) {
+    let annual = false;
+    const segBox = h('div');
+    const gridBox = h('div.tiers.plans');
+    function paint() {
+      clear(segBox);
+      segBox.appendChild(A.seg([{ key: 'm', label: '按月' }, { key: 'y', label: '包年 8 折' }],
+        annual ? 'y' : 'm', function (k) { annual = (k === 'y'); paint(); if (onChange) onChange(); }));
+      clear(gridBox);
+      (pr.plans || []).forEach(function (p) {
+        const yuan = annual ? p.annual_yuan : p.yuan;
+        const unit = annual ? '年' : '月';
+        const btn = h('button.tier', { type: 'button' },
+          h('span.t-yuan', null, h('b', { text: bNum(yuan) }), h('i', { text: ' 元/' + unit })),
+          h('span.t-coins', null, h('b', { text: String(p.chapters) }), h('i', { text: ' 章/' + unit })),
+          h('span.t-bonus', { text: p.label + (p.vip ? ' · VIP 队列' : '') + (p.shared ? ' · 团队共享' : '')
+            + (annual && p.annual_save ? ' · 省 ' + bNum(p.annual_save) + ' 元' : '') }));
+        btn.addEventListener('click', function () {
+          haptic('light');
+          billOrder('subscription', { plan: p.plan, months: 1, annual: annual, channel: 'alipay' },
+            p.label + '套餐 · 1 ' + unit + '（' + bNum(yuan) + ' 元）');
+        });
+        gridBox.appendChild(btn);
+      });
+    }
+    paint();
+    return card('订阅套餐', '包年 8 折', [segBox, gridBox,
+      h('div.footnote', { text: '先扣订阅额度（按月清零），用完的部分从钱包按 8 折扣墨币。' })]);
+  }
+
+  function billPriceCard(pr) {
+    const models = pr.models || {};
+    const order = ['deepseek', 'mimo', 'doubao'];
+    const name = { deepseek: 'DeepSeek', mimo: 'MiMo', doubao: '豆包' };
+    const wrap = h('div.price-table');
+    wrap.appendChild(h('div.pt-head', null, h('span', { text: '功能' }),
+      order.map(function (m) { return h('span', { text: name[m] + ' ×' + (models[m] || 1) }); })));
+    (pr.actions || []).forEach(function (a) {
+      wrap.appendChild(h('div.pt-row', null,
+        h('span.pt-name', { text: a.label || a.action }),
+        order.map(function (m) {
+          return h('span', { text: bNum((a.by_model || {})[m] || a.coins) });
+        })));
+    });
+    return card('价目表', bNum(pr.base_words || 2000) + ' 字基准章', [wrap,
+      h('div.footnote', { text: '超出 ' + bNum(pr.base_words || 2000) + ' 字，每 100 字加 '
+        + bNum(pr.extra_coin_per_100 || 0) + ' 墨币（单位：墨币）。' })]);
+  }
+
+  function billUsageCard(lg) {
+    const charges = (lg && lg.charges) || [];
+    const ledger = (lg && lg.ledger) || [];
+    const list = h('div.list');
+    if (!charges.length) list.appendChild(li({ title: '还没有计费记录', sub: '写作 / 体检之后这里会有明细' }));
+    charges.forEach(function (c) {
+      const stt = BILL_CHARGE_ST[c.status] || [c.status || '—', ''];
+      const how = [];
+      if (c.from_sub_units) how.push('订阅 ' + c.from_sub_units + ' 章');
+      if (c.from_wallet_coins) how.push(bNum(c.from_wallet_coins) + ' 墨币');
+      list.appendChild(li({
+        ico: 'dot',
+        title: (c.label || c.action || '—') + (c.provider ? ' · ' + c.provider : ''),
+        sub: bWhen(c.created_at) + (how.length ? ' · ' + how.join(' + ') : ''),
+        right: chip(stt[0], stt[1]),
+      }));
+    });
+    const l2 = h('div.list');
+    if (!ledger.length) l2.appendChild(li({ title: '钱包还没有流水' }));
+    ledger.forEach(function (r) {
+      const amt = Number(r.amount) || 0;
+      l2.appendChild(li({
+        ico: 'history',
+        title: (BILL_KIND[r.kind] || r.kind || '—') + (r.note ? ' · ' + String(r.note).slice(0, 30) : ''),
+        sub: bWhen(r.ts),
+        right: h('span.num', { text: (amt > 0 ? '+' : '') + bNum(amt) + ' · 余 ' + bNum(r.balance_after) }),
+      }));
+    });
+    return frag2(card('用量明细', '最近 ' + charges.length + ' 次', [list]),
+                 card('钱包流水', '最近 ' + ledger.length + ' 笔', [l2]));
+  }
+
+  /* 两张卡一起返回：frag 会在挂载时把子节点摊平 */
+  function frag2(a, b) { const f = h('div'); f.appendChild(a); f.appendChild(b); return f; }
+
+  function billOrder(kind, body, label) {
+    const url = kind === 'recharge' ? '/api/billing/recharge' : '/api/billing/subscribe';
+    return api.post(url, body).then(function (d) {
+      const o = (d && d.order) || {};
+      const s = sheet({ title: '订单已生成', build: function (b) {
+        b.appendChild(li({ title: '订单号', right: h('span.num', { text: o.order_no || '—' }) }));
+        b.appendChild(li({ title: '内容', right: h('span', { text: label }) }));
+        b.appendChild(li({ title: '金额', right: h('span.num', { text: bNum(o.amount_yuan) + ' 元' }) }));
+        b.appendChild(h('div.footnote', { text: '微信 / 支付宝回调还没接上，所以现在只生成订单、不真扣钱。' +
+          '把订单号发给管理员，后台确认到账后立刻生效。' }));
+        b.appendChild(buttons([{ label: '知道了', tone: 'primary', onTap: function () { s.close(); } }]));
+      } });
+    }).catch(function (e) { toast(e.message, 'bad'); });
+  }
+
+  function billScreen() {
+    return {
+      title: '钱包与订阅',
+      async mount(body) {
+        const out = h('div.pad');
+        const r = await Promise.all([
+          api.get('/api/billing/status'),
+          api.get('/api/billing/pricing'),
+          api.get('/api/billing/ledger').catch(function () { return {}; }),
+        ]);
+        const st = r[0] || {};
+        const pr = (r[1] && r[1].pricing) || st.pricing || {};
+        const lg = r[2] || {};
+        A.state.bill = st;
+        const per = st.coin_per_yuan || pr.coin_per_yuan || 100;
+        const vip = !!st.permanent_vip;
+        out.appendChild(billHead(st, per));
+        if (vip) {
+          out.appendChild(card('永久会员', '无需充值', [
+            h('div.small.muted', { text: '你是永久会员：不需要充值，也不用买套餐。下面是完整价目和用量明细，' +
+              '方便你随时核对规则；每一笔会员用量都记成「会员免费」，不扣任何额度。' })]));
+        } else {
+          out.appendChild(billTiers(pr));
+          out.appendChild(billPlans(pr));
+        }
+        out.appendChild(billPriceCard(pr));
+        out.appendChild(billUsageCard(lg));
+        return out;
+      },
+    };
   }
 
 })();
