@@ -1473,3 +1473,38 @@ html.light .li-ico.mk-deepseek { background: rgba(77, 107, 254, .12); color: #40
 }
 .ed-read:active { background: var(--press); }
 .ed-read svg { width: 16px; height: 16px; }
+
+/* ---------------- 钱包与订阅（计费） ---------------- */
+.vipbox {
+  display: flex; flex-direction: column; gap: 4px;
+  margin: 10px 0 2px; padding: 12px 14px; border-radius: 14px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.vipbox b { font-size: 15px; color: var(--accent); }
+.vipbox span { font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+.tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 9px; margin-top: 4px; }
+.tier {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  text-align: left; padding: 11px 12px; border-radius: 14px; cursor: pointer;
+  background: var(--panel3); border: 1px solid var(--line); color: var(--text);
+  font: inherit; -webkit-tap-highlight-color: transparent;
+}
+.tier:active { background: var(--press); transform: scale(.985); }
+.t-yuan { font-size: 13.5px; font-weight: 650; }
+.t-yuan i, .t-coins i { font-style: normal; font-size: 11px; color: var(--muted); margin-left: 1px; }
+.t-coins { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.t-bonus { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.price-table {
+  display: flex; flex-direction: column; border: 1px solid var(--line-soft);
+  border-radius: 14px; overflow: hidden; margin-top: 4px;
+}
+.pt-head, .pt-row { display: grid; grid-template-columns: 1.15fr 1fr 1fr 1fr; gap: 4px; padding: 8px 9px; font-size: 12.5px; }
+.pt-head { background: var(--panel3); color: var(--muted); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.pt-head span:not(:first-child), .pt-row span:not(:first-child) { text-align: right; }
+.pt-row + .pt-row { border-top: 1px solid var(--line-soft); }
+
+/* 计费页的账户卡只有两项：默认三列会把「1,234.50」挤出格子，这里收成两列 */
+.kpi-grid.k2 { grid-template-columns: repeat(2, 1fr); }
+.kpi-grid.k2 .k-value { font-size: 23px; letter-spacing: -.6px; }
+.kpi-grid.k2 .k-value small { font-size: 12px; }
