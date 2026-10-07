@@ -907,10 +907,10 @@
       h('div.li-ico.mk.mk-' + k, null, icon(MODEL_ICON[k] || 'spark', { size: 20 })),
       h('div.li-main', null,
         h('div.li-title', { text: mLabel(k) }),
-        h('div.li-sub', { text: has ? (info.model || '已配置') : '还没填 API Key' })),
+        h('div.li-sub', { text: has ? (info.model || '已配置') : '密钥未配置 · 请到电脑端设置' })),
       h('div.li-right', null,
         h('button.mini', {
-          type: 'button', text: has ? '改' : '填 Key',
+          type: 'button', text: has ? '查看' : '未配置',
           onclick: function (e) { e.stopPropagation(); haptic('light'); openProvider(k); },
         }),
         h('span.chk' + (on ? '.on' : ''), null, on ? icon('check', { size: 14, w: 3 }) : null)));
@@ -989,21 +989,17 @@
     return c;
   }
 
-  /* ---- 模型详情（填 Key / 改模型名 / 测连通性） ---- */
+  /* ---- 模型详情（密钥由电脑端管理，手机上只能看不能改） ---- */
   function openProvider(k) {
     const info = ((A.state.hero && A.state.hero.providers) || {})[k] || {};
     const s = settingsOf();
     const has = hasKey(s, k);
-    let keyEl = null, urlEl = null, nameEl = null;
+    let urlEl = null, nameEl = null;
     const sb = sheet({
-      title: mLabel(k) + ' · 模型配置',
+      title: mLabel(k) + ' · 模型详情',
       build: function (b) {
-        b.appendChild(h('div.fld-hint', { text: 'API Key 存在云服务器上，手机上只显示「已配置」，看不到原来的值；粘一个新的就能换掉。' }));
-        keyEl = h('input.li-input', {
-          type: 'password', autocapitalize: 'off', autocorrect: 'off', autocomplete: 'off', spellcheck: 'false',
-          placeholder: has ? '已配置（粘贴新的可覆盖）' : '粘贴 API Key', style: INPUT_STYLE,
-        });
-        b.appendChild(field('API Key', keyEl));
+        b.appendChild(h('div.fld-hint', { text: '密钥在电脑端统一管理，手机上不能改。这里只能看配没配、用的哪个模型。' }));
+        b.appendChild(li({ title: 'API Key', right: chip(has ? '已配置' : '未配置', has ? 'ok' : 'warn') }));
         urlEl = h('input.li-input', {
           type: 'text', autocapitalize: 'off', autocorrect: 'off', autocomplete: 'off', spellcheck: 'false',
           placeholder: info.base_url || '', value: s[k + '_base_url'] || '', style: INPUT_STYLE,
@@ -1018,12 +1014,11 @@
           { label: '保存', tone: 'primary', onTap: save },
           { label: '测连通性', onTap: function () { sb.close(); testProvider(k, mLabel(k)); } },
         ]));
-        b.appendChild(h('div.footnote', { text: '模型名留空就用官方默认：' + (info.model || '') + '。换 Key 不影响别的模型。' }));
+        b.appendChild(h('div.footnote', { text: '模型名留空就用官方默认：' + (info.model || '') + '。要换密钥，请到电脑端的「设置 · 模型」里改。' }));
       },
     });
     async function save() {
       const patch = {};
-      if (keyEl.value.trim()) patch[k + '_api_key'] = keyEl.value.trim();
       patch[k + '_base_url'] = urlEl.value.trim() || info.base_url || '';
       patch[k + '_model'] = nameEl.value.trim() || info.model || '';
       const ok = await putSettings(patch, mLabel(k) + ' 配置已保存');
@@ -1047,7 +1042,7 @@
             const row = h('div.li.tap', null,
               h('div.li-main', null,
                 h('div.li-title', { text: mLabel(k) }),
-                h('div.li-sub', { text: hasKey(s, k) ? '已配置' : '还没填 API Key（勾了也不会真的评）' })),
+                h('div.li-sub', { text: hasKey(s, k) ? '已配置' : '密钥未配置 · 请到电脑端设置（勾了也不会真的评）' })),
               h('div.li-right', null, h('span.chk' + (on ? '.on' : ''), null, on ? icon('check', { size: 14, w: 3 }) : null)));
             row.addEventListener('click', function () {
               haptic('light');
