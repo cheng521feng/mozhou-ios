@@ -690,33 +690,18 @@
     return sel;
   }
   async function setRole(key, model, act) {
-    const r = effRoles(settingsOf(), act);
+    const s = settingsOf();
+    const auto = assignRoles(act);
+    const cust = parseRoles(s.model_roles, act);
+    const r = {};
+    ROLE_ORDER.forEach(function (k) { r[k] = cust[k] || auto[k]; });
     r[key] = model;
     const str = ROLE_ORDER.filter(function (k) { return !!r[k]; })
       .map(function (k) { return k + '=' + r[k]; }).join(',');
-    const ok = await putSettings({ model_roles: str }, ROLE_LABEL[key] + '\u6539\u7531 ' + mLabel(model));
+    const ok = await putSettings({ model_roles: str }, ROLE_LABEL[key] + '改由 ' + mLabel(model));
     if (ok) A.render();
   }
 
-  function roleHint(s, act) {
-    const gs = String(s.gen_strategy || '').trim();
-    if (MODELS.indexOf(gs) >= 0) {
-      return '「写作策略」选了只用 ' + mLabel(gs)
-        + '，所以不管勾了几个，写作都只用它。想按勾选分工，把写作策略改回「按作品设置」。';
-    }
-    if (act.length === 1) {
-      return '只勾了 1 个模型，从策划、写作到审查、润色全交给 ' + mLabel(act[0])
-        + ' 一个人干。勾 2 个会分成「写的」和「审的」，勾 3 个各干各拿手的。';
-    }
-    if (act.indexOf('deepseek') >= 0) {
-      return '勾了 DeepSeek 就由它主写：从落笔到润色都是这一支笔，语气和节奏接得上；'
-        + '点子和挑毛病交给别的模型。';
-    }
-    if (act.length === 2) {
-      return '两个模型分工：一个负责想点子和落笔，一个负责挑毛病和润色。再勾上一个就变成三个各干各拿手的。';
-    }
-    return '三个模型各干各拿手的。';
-  }
 
 
   /* ---- 我的资料：头像 / 用户名 / 性别 / 年龄 ---- */
@@ -979,36 +964,31 @@
   }
   function roleCard() {
     const s = settingsOf();
-    const act = activeModels(s);
-    const cfg = configuredModels(s);
-    /* 跟电脑端一样：看的是「勾了几个」，不是「写作策略锁定成哪个」。
-       勾了但没配 Key 的模型用不了，先剔掉。 */
-    const ticked = splitModels(s.selected_models).filter(function (m) {
-      return !cfg.length || cfg.indexOf(m) >= 0;
-    });
-    const models = ticked.length > 1 ? ticked : (act.length ? act : ticked);
-    const editable = models.length > 1;
+    const sel = splitModels(s.selected_models);
+    const auto = assignRoles(sel);
+    const cust = parseRoles(s.model_roles, sel);
+    const eff = {};
+    ROLE_ORDER.forEach(function (k) { eff[k] = cust[k] || auto[k]; });
     const c = h('div.card');
     c.appendChild(h('div.card-head', null,
       h('h3', { text: '谁干什么' }),
-      h('span.sp', null, chip(models.length ? ('会调用 ' + models.length + ' 个模型') : '没有可用的模型',
-        models.length ? 'ok' : 'warn'))));
-    if (!models.length) {
-      c.appendChild(h('div.small.muted', { text: '一个 API Key 都没配。点上面模型右边的「填 Key」随便配一个，就能开始写了。' }));
+      h('span.sp', null, chip(sel.length >= 2 ? ('勾了 ' + sel.length + ' 个模型')
+        : (sel.length ? '1 个模型' : '还没勾模型'), sel.length >= 2 ? 'ok' : 'warn'))));
+    /* 跟电脑端一样：只看勾了几个模型。
+       勾 2 ~ 3 个才能自己分工；只勾 1 个就是它一个人全包，不给下拉。 */
+    if (sel.length <= 1) {
+      c.appendChild(h('div.footnote', { text: sel.length
+        ? ('只勾了 1 个模型：策划、写作、审查、润色全交给 ' + mLabel(eff.write)
+           + ' 一个人干，再勾一个模型就能分工。')
+        : '还没勾任何模型：至少勾一个才能写。' }));
       return c;
     }
-    const r = effRoles(s, models);
     const l = h('div.list');
     ROLE_ORDER.forEach(function (k) {
-      l.appendChild(li({
-        title: ROLE_LABEL[k],
-        right: editable ? roleSelect(k, models, r) : h('span', { text: mLabel(r[k]) }),
-      }));
+      l.appendChild(li({ title: ROLE_LABEL[k], right: roleSelect(k, sel, eff) }));
     });
     c.appendChild(l);
-    c.appendChild(h('div.footnote', { text: editable
-      ? ('照电脑端一样：每个角色都能自己选模型；不动就是系统默认。' + roleHint(s, act))
-      : roleHint(s, act) }));
+    c.appendChild(h('div.footnote', { text: '自己定谁干什么；不动就是系统默认（勾了 DeepSeek 就由它主写）' }));
     return c;
   }
 
