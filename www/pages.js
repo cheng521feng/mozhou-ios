@@ -677,16 +677,17 @@
     return out;
   }
 
-  /* 点某个角色那一行 -> 弹出模型列表挑一个 */
-  function pickRole(key, act) {
-    const cur = effRoles(settingsOf(), act);
-    MZ.actions(act.map(function (m) {
-      return {
-        label: mLabel(m), icon: m === cur[key] ? 'check' : null,
-        sub: m === cur[key] ? '\u5f53\u524d' : '',
-        onPick: function () { setRole(key, m, act); },
-      };
-    }), { title: ROLE_LABEL[key] + '\u7528\u54ea\u4e2a\u6a21\u578b' });
+  /* 每个角色一个下拉，跟电脑端设置页那四个下拉一模一样：
+     勾了几个模型，下拉里就有几个可选项；不动就是系统默认分工。 */
+  function roleSelect(key, models, cur) {
+    const sel = h('select.role-pick', {
+      style: 'background:var(--panel2);border:1px solid var(--line);border-radius:12px;'
+           + 'padding:9px 10px;color:inherit;font:inherit;font-size:15px;max-width:50vw;text-align:left',
+    });
+    models.forEach(function (m) { sel.appendChild(h('option', { value: m, text: mLabel(m) })); });
+    sel.value = cur[key] || models[0];
+    sel.addEventListener('change', function () { haptic('light'); setRole(key, sel.value, models); });
+    return sel;
   }
   async function setRole(key, model, act) {
     const r = effRoles(settingsOf(), act);
@@ -979,28 +980,35 @@
   function roleCard() {
     const s = settingsOf();
     const act = activeModels(s);
+    const cfg = configuredModels(s);
+    /* 跟电脑端一样：看的是「勾了几个」，不是「写作策略锁定成哪个」。
+       勾了但没配 Key 的模型用不了，先剔掉。 */
+    const ticked = splitModels(s.selected_models).filter(function (m) {
+      return !cfg.length || cfg.indexOf(m) >= 0;
+    });
+    const models = ticked.length > 1 ? ticked : (act.length ? act : ticked);
+    const editable = models.length > 1;
     const c = h('div.card');
     c.appendChild(h('div.card-head', null,
       h('h3', { text: '谁干什么' }),
-      h('span.sp', null, chip(act.length ? ('会调用 ' + act.length + ' 个模型') : '没有可用的模型',
-        act.length ? 'ok' : 'warn'))));
-    if (!act.length) {
+      h('span.sp', null, chip(models.length ? ('会调用 ' + models.length + ' 个模型') : '没有可用的模型',
+        models.length ? 'ok' : 'warn'))));
+    if (!models.length) {
       c.appendChild(h('div.small.muted', { text: '一个 API Key 都没配。点上面模型右边的「填 Key」随便配一个，就能开始写了。' }));
       return c;
     }
-    const r = effRoles(s, act);
-    const editable = act.length > 1;
+    const r = effRoles(s, models);
     const l = h('div.list');
     ROLE_ORDER.forEach(function (k) {
       l.appendChild(li({
-        title: ROLE_LABEL[k], arrow: editable,
-        right: h('span', { text: mLabel(r[k]) }),
-        onTap: editable ? function () { pickRole(k, act); } : null,
+        title: ROLE_LABEL[k],
+        right: editable ? roleSelect(k, models, r) : h('span', { text: mLabel(r[k]) }),
       }));
     });
     c.appendChild(l);
-    c.appendChild(h('div.footnote', { text: (editable
-      ? '\u70b9\u6bcf\u4e00\u884c\u53ef\u4ee5\u6362\u6a21\u578b\uff1b' : '') + roleHint(s, act) }));
+    c.appendChild(h('div.footnote', { text: editable
+      ? ('照电脑端一样：每个角色都能自己选模型；不动就是系统默认。' + roleHint(s, act))
+      : roleHint(s, act) }));
     return c;
   }
 
