@@ -642,6 +642,61 @@
     return { plan: 'doubao', write: 'mimo', review: 'mimo', polish: 'doubao' };
   }
 
+  /* 设置里存的自定义分工："plan=doubao,write=deepseek,review=mimo,polish=deepseek"
+     分隔符认半角/全角逗号分号和换行；角色名或模型名对不上的丢掉，交给自动规则补 */
+  const ROLE_SEP = ',;' + String.fromCharCode(10, 13, 65307, 65292);
+  function parseRoles(raw, sel) {
+    const out = {};
+    const src = String(raw == null ? '' : raw);
+    let buf = '';
+    for (let i = 0; i < src.length; i++) buf += (ROLE_SEP.indexOf(src.charAt(i)) >= 0 ? ',' : src.charAt(i));
+    buf.split(',').forEach(function (part) {
+      const one = part.trim();
+      if (!one || one.indexOf('=') < 0) return;
+      const k = one.slice(0, one.indexOf('=')).trim().toLowerCase();
+      const v = one.slice(one.indexOf('=') + 1).trim().toLowerCase();
+      if (ROLE_ORDER.indexOf(k) >= 0 && sel.indexOf(v) >= 0) out[k] = v;
+    });
+    return out;
+  }
+
+  /* 这一章到底谁干什么：优先用后端算好发下来的 effective_roles，
+     拿不到就本地按 model_roles + 自动规则算，保证跟后端一致 */
+  function effRoles(s, act) {
+    const out = {};
+    const back = s && s.effective_roles;
+    if (back && typeof back === 'object' && typeof back.write === 'string'
+        && act.indexOf(back.write) >= 0
+        && ROLE_ORDER.every(function (k) { return typeof back[k] === 'string' && back[k]; })) {
+      ROLE_ORDER.forEach(function (k) { out[k] = back[k]; });
+      return out;
+    }
+    const custom = parseRoles(s && s.model_roles, act);
+    const auto = assignRoles(act);
+    ROLE_ORDER.forEach(function (k) { out[k] = custom[k] || auto[k]; });
+    return out;
+  }
+
+  /* 点某个角色那一行 -> 弹出模型列表挑一个 */
+  function pickRole(key, act) {
+    const cur = effRoles(settingsOf(), act);
+    MZ.actions(act.map(function (m) {
+      return {
+        label: mLabel(m), icon: m === cur[key] ? 'check' : null,
+        sub: m === cur[key] ? '\u5f53\u524d' : '',
+        onPick: function () { setRole(key, m, act); },
+      };
+    }), { title: ROLE_LABEL[key] + '\u7528\u54ea\u4e2a\u6a21\u578b' });
+  }
+  async function setRole(key, model, act) {
+    const r = effRoles(settingsOf(), act);
+    r[key] = model;
+    const str = ROLE_ORDER.filter(function (k) { return !!r[k]; })
+      .map(function (k) { return k + '=' + r[k]; }).join(',');
+    const ok = await putSettings({ model_roles: str }, ROLE_LABEL[key] + '\u6539\u7531 ' + mLabel(model));
+    if (ok) A.render();
+  }
+
   function roleHint(s, act) {
     const gs = String(s.gen_strategy || '').trim();
     if (MODELS.indexOf(gs) >= 0) {
@@ -911,6 +966,13 @@
     const next = MODELS.filter(function (m) { return (m === k ? !has : cur.indexOf(m) >= 0); });
     const patch = { selected_models: next.join(',') };
     if (sameSet(cur, splitModels(s.review_models))) patch.review_models = next.join(',');
+    const oldRoles = parseRoles(s.model_roles, cur);
+    if (Object.keys(oldRoles).length) {
+      const keep = {};
+      ROLE_ORDER.forEach(function (x) { if (oldRoles[x] && next.indexOf(oldRoles[x]) >= 0) keep[x] = oldRoles[x]; });
+      patch.model_roles = ROLE_ORDER.filter(function (x) { return keep[x]; })
+        .map(function (x) { return x + '=' + keep[x]; }).join(',');
+    }
     const ok = await putSettings(patch, mLabel(k) + (has ? ' 已取消' : ' 已勾选'));
     if (ok) A.render();
   }
@@ -926,13 +988,19 @@
       c.appendChild(h('div.small.muted', { text: '一个 API Key 都没配。点上面模型右边的「填 Key」随便配一个，就能开始写了。' }));
       return c;
     }
-    const r = assignRoles(act);
+    const r = effRoles(s, act);
+    const editable = act.length > 1;
     const l = h('div.list');
     ROLE_ORDER.forEach(function (k) {
-      l.appendChild(li({ title: ROLE_LABEL[k], right: h('span', { text: mLabel(r[k]) }) }));
+      l.appendChild(li({
+        title: ROLE_LABEL[k], arrow: editable,
+        right: h('span', { text: mLabel(r[k]) }),
+        onTap: editable ? function () { pickRole(k, act); } : null,
+      }));
     });
     c.appendChild(l);
-    c.appendChild(h('div.footnote', { text: roleHint(s, act) }));
+    c.appendChild(h('div.footnote', { text: (editable
+      ? '\u70b9\u6bcf\u4e00\u884c\u53ef\u4ee5\u6362\u6a21\u578b\uff1b' : '') + roleHint(s, act) }));
     return c;
   }
 
