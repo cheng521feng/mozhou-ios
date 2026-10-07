@@ -967,10 +967,10 @@
            + ' 一个人干，再勾一个模型就能分工。')
         : '还没勾任何模型：至少勾一个才能写。' }));
     }
-    /* 三、写作策略等（电脑端同一张卡片里的那一组） */
+    /* 三、其它写作设置（电脑端同一张卡片里的那一组）。
+       这里【故意不放「写作策略」】：它和上面「勾哪个模型」说的是同一件事，
+       两个开关放一起会互相打架，手机上统一以勾选的模型为准。 */
     const wl = h('div.list');
-    wl.appendChild(pickRow('写作策略', '默认按每本书自己的设置', strategyWord(settings), STRATEGY_ITEMS,
-      'gen_strategy', function (v) { saveSetting('gen_strategy', v, '写作策略已更新'); }, 'target'));
     wl.appendChild(pickRow('模型调用并发', '撞限流会自动退回一个个来', concWord(settings), CONC_ITEMS,
       'llm_concurrency', function (v) { saveSetting('llm_concurrency', v, '调用并发已更新'); }, 'bolt'));
     wl.appendChild(pickRow('单章失败自动重试', '写崩了自动再试几次', (settings.auto_retry || '2') + ' 次', RETRY_ITEMS,
