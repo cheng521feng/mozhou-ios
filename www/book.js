@@ -608,14 +608,14 @@ window.MZBook = (function () {
     });
   }
 
-  /* ---------- 故事Bible：长篇一致性档案（每 5 章自动浓缩，≤800 字） ---------- */
+  /* ---------- 故事Bible：长篇一致性档案（每章轻量追加，每 10 章完整浓缩，≤800 字） ---------- */
   function bibleCard(n, nv) {
     const ta = h('textarea.inp', { rows: '8', spellcheck: 'false',
-      placeholder: '还没有故事Bible：写满几章后点下面「重建」，或连续写下去，每 5 章会自动浓缩一次' });
+      placeholder: '还没有故事Bible：写满几章后点下面「重建」，或连续写下去，每章会自动追加关键变化、每 10 章完整浓缩一次' });
     ta.value = nv.bible || '';
     const box = h('div.card');
     box.appendChild(h('div.card-head', null, h('h3', { text: '故事Bible' }),
-      h('span.sp', { text: nv.bible_at ? ('已浓缩到第 ' + nv.bible_at + ' 章') : '每 5 章自动更新' })));
+      h('span.sp', { text: nv.bible_at ? ('已浓缩到第 ' + nv.bible_at + ' 章') : '每章自动追加 / 每 10 章浓缩' })));
     box.appendChild(h('div.small.muted', { text: '人物当前状态 / 核心设定 / 已埋伏笔 / 已填坑 / 最近剧情，浓缩在 800 字以内。补更和重写都会自动带上它，比只喂前情摘要更不容易崩设定。' }));
     box.appendChild(ta);
     box.appendChild(buttons([
