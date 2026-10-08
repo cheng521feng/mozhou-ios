@@ -1128,6 +1128,16 @@ window.MZEditor = (function () {
       }
     }
 
+    /* 局部重写后要不要自动复评：跟桌面端 hit_review_auto 同一口径
+       （默认关＝省一次多模型调用；想看改前改后差多少分就到设置里打开） */
+    async function hitAutoOn() {
+      try {
+        const r = await api.get('/api/settings');
+        const st = (r && r.settings) || {};
+        return st.hit_review_auto !== '0';
+      } catch (e) { return true; }
+    }
+
     /* ============== 检查：合规 / 钩子 / 读者视角 / 一致性 ============== */
     const CHECK_LABEL = { compliance: '合规预检', hook: '章末钩子体检', reader: '读者视角模拟', consistency: '一致性检查' };
     const CHECK_PATH = { compliance: '/compliance', hook: '/hook', reader: '/reader_sim', consistency: '/consistency_check' };
@@ -1151,12 +1161,12 @@ window.MZEditor = (function () {
       return ed.check[kind];
     }
 
-    /* ============== 三模型评分 + 按建议重写 ============== */
+    /* ============== 多模型评分 + 按建议重写 ============== */
     async function runHit(range) {
       const body = range ? { start: range.start, end: range.end, force: true } : { force: false };
-      const res = await runOp(range ? '评分选中段' : '三模型爆款评分',
+      const res = await runOp(range ? '评分选中段' : '多模型爆款评分',
         '/api/chapter/' + cid + '/hit_review',
-        { body: body, timeout: 900000, match: range ? '评分选中段' : '三模型评分' });
+        { body: body, timeout: 900000, match: range ? '评分选中段' : '多模型评分' });
       let agg = res;
       if (res && res.review) agg = res.review.result || res.review;
       if (res && res.result) agg = res.result;
@@ -1191,7 +1201,7 @@ window.MZEditor = (function () {
 
     async function hitFix(agg, retry) {
       if (!ed) return;
-      if (!agg || agg.ok === false) { toast('先跑一次三模型评分', 'warn'); return; }
+      if (!agg || agg.ok === false) { toast('先跑一次多模型评分', 'warn'); return; }
       let r = null;
       if (agg.scope === 'selection' && agg.range_start !== undefined && agg.range_start !== null) {
         r = { start: agg.range_start, end: agg.range_end };
@@ -1204,6 +1214,11 @@ window.MZEditor = (function () {
       const inst = A.hitFixInstruction(agg, !!retry);
       const one = await doRewrite(r, inst);
       if (!one) return;
+      if (!(await hitAutoOn())) {
+        toast('已替换 ' + rangeLabel(one.range)
+          + '（自动复评已关，到「设置 → 质检设置」里可以打开）', 'ok');
+        return;
+      }
       toast('已替换 ' + rangeLabel(one.range) + '，正在复评…', 'ok');
       const after = await runHit(one.range);
       const lower = function (a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a < b - 0.5; };
@@ -1404,7 +1419,7 @@ window.MZEditor = (function () {
         { label: '一致性检查', sub: '正文对着设定卡查矛盾', icon: 'layers', onPick: function () { openInspect('consistency'); } },
         { label: '章末钩子体检', icon: 'hook', onPick: function () { openInspect('hook'); } },
         { label: '读者视角模拟', icon: 'eye', onPick: function () { openInspect('reader'); } },
-        { label: '三模型爆款评分', icon: 'fire', onPick: function () { openInspect('hit'); } },
+        { label: '多模型爆款评分', icon: 'fire', onPick: function () { openInspect('hit'); } },
         { label: '版本历史', icon: 'history', onPick: function () { openInspect('versions'); } },
         { label: '删除本章', danger: true, icon: 'trash', onPick: function () { delChapter(); } },
       ], { title: '第 ' + ((ed.data && ed.data.chapter && ed.data.chapter.idx) || '') + ' 章' });
@@ -1549,7 +1564,7 @@ window.MZEditor = (function () {
           actions.appendChild(A._btn('按建议重写', 'blue', function () { close(); guard(hitFix(agg, false)); }));
         }
         pane.appendChild(MZUI.hitPanel(agg, { actions: actions }));
-        pane.appendChild(noteNode('「按建议重写」会把三模型给出的首要修改 + 拖后腿的维度 + 各模型的看法，合成一条改写指令，'
+        pane.appendChild(noteNode('「按建议重写」会把多模型给出的首要修改 + 拖后腿的维度 + 各模型的看法，合成一条改写指令，'
           + '只动这一段（或整章），改完自动复评一次；分数反而更低就换更聚焦的指令再改一次。'));
         return;
       }
