@@ -167,12 +167,17 @@ window.MZEditor = (function () {
           h('div.flex1', null,
             h('div', { style: { fontSize: '15.5px', fontWeight: '660' }, text: '《' + (n.title || '') + '》' }),
             h('div.small.muted.mt8', { text: '今日 ' + made + '/' + daily + ' 章 · 全书 ' + (n.chapter_count || 0) + ' 章 ' + fmtNum(n.total_chars || 0) + ' 字' }))));
-        const chapters = (n.chapters || []).slice().sort(function (a, b) { return b.idx - a.idx; });
-        const heroActs = [{ label: '补更（续写）', tone: 'primary', onTap: function () { A.askUpdate(n); } }];
+        /* 大按钮上把这一章的价钱写出来（价格问后端，不写死）。
+           「写下一章」= 补更（续写），两条入口是同一件事，不再各开一个按钮。 */
+        const _price = await A.chapterPrice(n.target_words || 2500, 'continue');
+        const heroActs = [{ label: _price ? ('写下一章 · ' + _price + ' 墨币') : '写下一章',
+          tone: 'primary', onTap: function () { A.askUpdate(n); } }];
         if (chapters.length) {
-          heroActs.push({ label: '写最新一章', onTap: function () { openChapter(selectedNovelId, chapters[0].id, { title: chapters[0].title, idx: chapters[0].idx, nid: selectedNovelId }); } });
+          heroActs.push({ label: '继续写最新章', onTap: function () { openChapter(selectedNovelId, chapters[0].id, { title: chapters[0].title, idx: chapters[0].idx, nid: selectedNovelId }); } });
         }
-        if (A.liveBusy(A.state.live)) heroActs.push({ label: '停止全部', tone: 'danger', size: 'sm', onTap: function () { A.stopAll(); } });
+        if (A.liveBusy(A.state.live)) {
+          heroActs.push({ label: '停止', tone: 'danger', size: 'sm', onTap: function () { A.stopAll(); } });
+        }
         hero.appendChild(buttons(heroActs));
         out.appendChild(hero);
 
@@ -294,63 +299,6 @@ window.MZEditor = (function () {
         }));
       });
       box.appendChild(l);
-    }
-    return box;
-  }
-
-  /* 读者视角：{verdict, chars, personas[{who,drop_at,why,best,worst}], fixes[]} */
-  function readerDropRange(res) {
-    const ps = (res && res.personas) || [];
-    const drops = ps.map(function (p) { return parseInt(p.drop_at, 10) || 0; }).filter(function (x) { return x > 0; });
-    const total = paraCount(textArea.value);
-    if (!drops.length || !total) return null;
-    const last = total - 1;
-    const a = Math.max(0, Math.min(Math.min.apply(null, drops) - 1, last));
-    const b = Math.max(a, Math.min(Math.max.apply(null, drops) - 1, last));
-    return { start: a, end: b };
-  }
-  function readerNode(res) {
-    const box = h('div');
-    if (!res) {
-      box.appendChild(noteNode('还没跑过。三个不同口味的读者各读一遍，指出谁在第几段看不下去、为什么。'));
-      return box;
-    }
-    const ps = res.personas || [];
-    const drops = ps.filter(function (p) { return (parseInt(p.drop_at, 10) || 0) > 0; });
-    box.appendChild(h('div.row', { style: { gap: '13px', alignItems: 'center' } },
-      MZUI.ring(drops.length ? Math.max(12, 100 - drops.length * 26) : 100, '留存', 76),
-      h('div.flex1', null,
-        h('div.row.wrap', { style: { gap: '6px' } },
-          chip(drops.length ? drops.length + ' 人想划走' : '都看完了', drops.length ? 'warn' : 'ok', 'eye'),
-          chip(fmtNum(res.chars || 0) + ' 字', '')),
-        res.verdict ? h('div.small.muted.mt8', { text: res.verdict }) : null)));
-    ps.forEach(function (p, i) {
-      const at = parseInt(p.drop_at, 10) || 0;
-      const c = h('div.card.tight.mt12');
-      c.style.setProperty('--i', String(i));
-      c.appendChild(h('div.row', { style: { gap: '8px', alignItems: 'center' } },
-        chip(p.who || ('读者 ' + (i + 1)), at ? 'warn' : 'ok'),
-        at ? h('span.small', { style: { color: 'var(--amber)' }, text: '第 ' + at + ' 段想划走' })
-           : h('span.small.muted', { text: '看完了' })));
-      if (p.why) c.appendChild(h('div.small.muted.mt8.pre-wrap', { text: p.why }));
-      if (p.best) c.appendChild(h('div.small.mt8', null, h('b', { text: '最好：' }), h('span.muted', { text: p.best })));
-      if (p.worst) c.appendChild(h('div.small.mt8', null, h('b', { text: '最假：' }), h('span.muted', { text: p.worst })));
-      box.appendChild(c);
-    });
-    const fixes = res.fixes || [];
-    if (fixes.length) {
-      box.appendChild(h('div.section-title', { text: '最该改的几处' }));
-      const l = h('div.list');
-      fixes.forEach(function (f) { l.appendChild(li({ ico: 'bolt', title: String(f) })); });
-      box.appendChild(l);
-    }
-    const r = readerDropRange(res);
-    if (r) {
-      box.appendChild(h('div.btn-row.mt12', null,
-        A._btn('按读者建议改 ' + rangeLabel(r), 'primary', function () { readerFix(res, r); })));
-      box.appendChild(noteNode('会把「谁在第几段想划走 + 上面的改法」当成改写要求，只动这几段，前后文一个字不改；改完自动复跑一次读者视角。'));
-    } else if (ps.length) {
-      box.appendChild(noteNode('三个人设都看完了、没有想划走的段落，这一章不用重写。'));
     }
     return box;
   }
@@ -783,8 +731,7 @@ window.MZEditor = (function () {
       h('span.sel-ic', null, icon('edit', { size: 15 })),
       selInfo,
       h('span.sp'),
-      h('button.sel-btn', { type: 'button', text: '局部改写' }),
-      h('button.sel-btn', { type: 'button', text: '评分' }),
+      h('button.sel-btn', { type: 'button', text: '重写选中段' }),
       h('button.sel-btn', { type: 'button', text: '复制' }));
     const selBtns = selBar.querySelectorAll('.sel-btn');
     function selRange() {
@@ -799,15 +746,10 @@ window.MZEditor = (function () {
       selBar.hidden = false;
       syncDockLift();
       selInfo.textContent = '已选 ' + rangeLabel(r) + ' · ' + (b - a) + ' 字';
-      selBtns[0].disabled = false; selBtns[1].disabled = false; selBtns[2].disabled = false;
+      selBtns[0].disabled = false; selBtns[1].disabled = false;
     }
     selBtns[0].addEventListener('click', function () { const r = selRange(); if (r) rewriteHint(r); });
-    selBtns[1].addEventListener('click', function () {
-      const r = selRange();
-      if (!r) { toast('先在正文里选中几段', 'warn'); return; }
-      runHit(r);
-    });
-    selBtns[2].addEventListener('click', function () { copySelection(); });
+    selBtns[1].addEventListener('click', function () { copySelection(); });
     ['select', 'keyup', 'touchend', 'mouseup', 'input'].forEach(function (ev) {
       textArea.addEventListener(ev, function () { setTimeout(paintSel, 0); });
     });
@@ -823,15 +765,13 @@ window.MZEditor = (function () {
       return b;
     }
     tb('保存', 'primary', 'check', function () { save(true); });
-    /* 写作动作只留这三个：「接着写」已经并进「写下一章」，不再单独开一个入口
-       （两个入口说的是同一件事，还会各扣一笔钱） */
+    /* 章详情页底部只留四个动作：写下一章 / 重写本章（= 精细重写）/ 选中段重写 / 历史版本。
+       「接着写」并进「写下一章」，不再单独开入口（两个入口说的是同一件事，而且还会各扣一笔钱）；
+       去 AI 化 / AI 起名 / 本章检查 / 复制整章 这些都收进右边「更多 ⋯」里。 */
     tb('写下一章', 'blue', 'books', function () { writeNext(); });
     tb('重写本章', '', 'spark', function () { regen(); });
-    tb('自动写到第N章', '', 'play', function () { autoWriteNext(); });
-    tb('复制整章', '', 'copy', function () { copyChapter(); });
-    tb('去 AI 化', '', 'refresh', function () { deai(); });
-    tb('起名', '', 'target', function () { autoTitle(); });
-    tb('检查', 'blue', 'shield', function () { openInspect(); });
+    tb('选中段重写', '', 'edit', function () { rewriteHint(null); });
+    tb('历史版本', '', 'history', function () { openInspect('versions'); });
     tb('更多', '', 'more', function () { moreActions(); });
 
     wrap.appendChild(nav); wrap.appendChild(findBar); wrap.appendChild(bodyBox);
@@ -1062,12 +1002,12 @@ window.MZEditor = (function () {
       } catch (e) { return true; }
     }
 
-    /* ============== 检查：合规 / 钩子 / 读者视角 / 一致性 ============== */
-    const CHECK_LABEL = { compliance: '合规预检', hook: '章末钩子体检', reader: '读者视角模拟', consistency: '一致性检查' };
-    const CHECK_PATH = { compliance: '/compliance', hook: '/hook', reader: '/reader_sim', consistency: '/consistency_check' };
-    const CHECK_RENDER = { compliance: complianceNode, hook: hookNode, reader: readerNode, consistency: consistencyNode };
+    /* ============== 检查：合规 / 钩子 / 一致性（读者页签已下线） ============== */
+    const CHECK_LABEL = { compliance: '合规预检', hook: '章末钩子体检', consistency: '一致性检查' };
+    const CHECK_PATH = { compliance: '/compliance', hook: '/hook', consistency: '/consistency_check' };
+    const CHECK_RENDER = { compliance: complianceNode, hook: hookNode, consistency: consistencyNode };
     /* 一致性检查是本地规则跑的，服务端不登记 ops，所以这里没有 match */
-    const CHECK_MATCH = { compliance: '合规预检', hook: '章末钩子体检', reader: '读者视角模拟' };
+    const CHECK_MATCH = { compliance: '合规预检', hook: '章末钩子体检' };
 
     async function runCheck(kind) {
       const res = await runOp(CHECK_LABEL[kind], '/api/chapter/' + cid + CHECK_PATH[kind], {
@@ -1159,23 +1099,6 @@ window.MZEditor = (function () {
         toast('复评 ' + after.hit_score + ' 分' + (before.hit_score !== null && before.hit_score !== undefined
           ? '（改前 ' + before.hit_score + '）' : ''), 'ok');
       }
-    }
-
-    /* 按读者建议重写那几段，改完自动复跑读者视角 */
-    async function readerFix(res, r) {
-      if (!ed) return;
-      const drops = ((res && res.personas) || []).filter(function (p) { return (parseInt(p.drop_at, 10) || 0) > 0; });
-      const who = drops.map(function (p) { return (p.who || '读者') + '（第 ' + p.drop_at + ' 段想划走）'; });
-      const inst = [
-        '只改这几段：剧情走向、人物关系、时间线都不能变，改完必须和前后文无缝衔接。',
-        who.length ? ('三个人设的弃读原因：' + who.join('；') + '。') : '',
-        ((res && res.fixes) || []).slice(0, 4).join('；'),
-        '硬性：改完字数不得少于原文、段落数不得减少，不要出现「然而/仿佛/不禁/缓缓/微微/瞬间」这类 AI 腔词。',
-      ].filter(Boolean).join(' ');
-      const one = await doRewrite(r, inst);
-      if (!one) return;
-      toast('已按读者建议重写，正在复跑读者视角…', 'ok');
-      await runCheck('reader');
     }
 
     function insertHook(t) {
@@ -1325,9 +1248,12 @@ window.MZEditor = (function () {
     function moreActions() {
       actions([
         { label: '用阅读器读这一章', sub: '沉浸阅读，左右翻章', icon: 'book', onPick: function () { guard(goRead()); } },
-        { label: '写下一章', sub: '这一章就这样了，让 AI 接着往下开新章', icon: 'books', onPick: function () { guard(writeNext()); } },
         { label: '重写本章（精细重写）', sub: '只这一章走满 审查 / 润色 / 去AI化，慢一点但更细', icon: 'spark', onPick: function () { guard(regen()); } },
         { label: '自动写到第 N 章', sub: '无人值守：连着写，写完自动质检', icon: 'play', onPick: function () { guard(autoWriteNext()); } },
+        { label: '本章检查（质检 / 合规 / 一致性 / 钩子）', sub: '看看这一章有没有硬伤', icon: 'shield', onPick: function () { openInspect('quality'); } },
+        { label: '去 AI 化', sub: '把 AI 腔调器的句子洗一遍', icon: 'refresh', onPick: function () { guard(deai()); } },
+        { label: 'AI 给本章起名', icon: 'target', onPick: function () { guard(autoTitle()); } },
+        { label: '复制整章', sub: '含标题，直接粘到番茄后台', icon: 'copy', onPick: function () { copyChapter(); } },
         { label: '切换作品（换一本书写）', sub: '还在写作台里，改的是同一本书的别的章', icon: 'books', onPick: function () { guard(openBookSheet()); } },
         { label: '查找 / 替换', sub: '章内找字、批量替换（Ctrl/Cmd+F）', icon: 'menu', onPick: function () { toggleFind(); } },
         { label: '撤销上一步', sub: '快捷键 Ctrl/Cmd+Z', icon: 'refresh', onPick: function () { undo(); } },
@@ -1337,13 +1263,10 @@ window.MZEditor = (function () {
         { label: '导出本章 txt', sub: '存到「文件」或发给自己', icon: 'download', onPick: function () { guard(exportChapter()); } },
         { label: '章节目录 / 跳章', sub: '上一章、下一章也在顶部', icon: 'books', onPick: function () { jumpList(); } },
         { label: '改本章目标字数', sub: '点顶部的「目标」chip 也能改', icon: 'target', onPick: function () { editTarget(); } },
-        { label: '复制整章', sub: '含标题，直接粘到番茄后台', icon: 'copy', onPick: function () { copyChapter(); } },
         { label: '按我说的改选中段落', sub: '选中正文里的一段再点', icon: 'edit', onPick: function () { rewriteHint(null); } },
         { label: '合规预检', sub: '本机词表，秒出', icon: 'shield', onPick: function () { openInspect('compliance'); } },
         { label: '一致性检查', sub: '正文对着设定卡查矛盾', icon: 'layers', onPick: function () { openInspect('consistency'); } },
         { label: '章末钩子体检', icon: 'hook', onPick: function () { openInspect('hook'); } },
-        { label: '读者视角模拟', icon: 'eye', onPick: function () { openInspect('reader'); } },
-        { label: '多模型爆款评分', icon: 'fire', onPick: function () { openInspect('hit'); } },
         { label: '版本历史', icon: 'history', onPick: function () { openInspect('versions'); } },
         { label: '删除本章', danger: true, icon: 'trash', onPick: function () { delChapter(); } },
       ], { title: '第 ' + ((ed.data && ed.data.chapter && ed.data.chapter.idx) || '') + ' 章' });
@@ -1393,18 +1316,15 @@ window.MZEditor = (function () {
     /* ============== 检查抽屉（底部抽屉 + 分段，每段都能「跑一次」） ============== */
     const INSPECT_SEGS = [
       { key: 'quality', label: '质检' },
-      { key: 'hit', label: '爆款' },
       { key: 'compliance', label: '合规' },
       { key: 'consistency', label: '一致性' },
       { key: 'hook', label: '钩子' },
-      { key: 'reader', label: '读者' },
       { key: 'versions', label: '版本' },
     ];
     const CHECK_NOTE = {
       compliance: '本机雷区词表扫一遍，秒出；不联网、不花额度。',
       consistency: '本地规则：正文 × 设定卡 × 状态卡，查跨章衔接 / 人物 / 时间线 / 伏笔，秒出。',
       hook: '看章末有没有让人想点下一章的东西；没有就给几条候选，点一下直接插到结尾。',
-      reader: '三个不同口味的读者各读一遍，指出谁在第几段看不下去；要调模型，约 30~90 秒。',
     };
     function refreshInspect() {
       if (!inspector) return;
@@ -1472,24 +1392,6 @@ window.MZEditor = (function () {
           });
           pane.appendChild(l);
         }
-        return;
-      }
-
-      if (tab === 'hit') {
-        const agg = d.hit_review || ed.check.hit || null;
-        const actions = h('div.btn-row', { style: { marginTop: '0' } });
-        actions.appendChild(A._btn('评分本章', 'primary', function () { guard(runHit(null)); }));
-        actions.appendChild(A._btn('评分选中段', '', function () {
-          const r = selRange();
-          if (!r) { toast('先在正文里选中几段', 'warn'); return; }
-          guard(runHit(r));
-        }));
-        if (agg && agg.ok !== false && agg.top_fix) {
-          actions.appendChild(A._btn('按建议重写', 'blue', function () { close(); guard(hitFix(agg, false)); }));
-        }
-        pane.appendChild(MZUI.hitPanel(agg, { actions: actions }));
-        pane.appendChild(noteNode('「按建议重写」会把多模型给出的首要修改 + 拖后腿的维度 + 各模型的看法，合成一条改写指令，'
-          + '只动这一段（或整章），改完自动复评一次；分数反而更低就换更聚焦的指令再改一次。'));
         return;
       }
 
