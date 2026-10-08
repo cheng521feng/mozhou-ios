@@ -162,10 +162,10 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations array" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:0 string zh-Hans" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:1 string en" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.9.38" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 2.9.38" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 40" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 40" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.9.39" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 2.9.39" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 41" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 41" "$PLIST"
           # 导出 txt：写完文件要能在「文件」App 里看到（我的 iPhone → 墨舟）
           /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" "$PLIST"
