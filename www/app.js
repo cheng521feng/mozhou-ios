@@ -265,7 +265,7 @@ window.MZApp = (function () {
     hitPanel(agg, opts) {
       const box = h('div');
       if (!agg) {
-        box.appendChild(emptyBox('target', '还没有爆款评分', '点「评分本章」让三个模型打分（约 10~40 秒）'));
+        box.appendChild(emptyBox('target', '还没有爆款评分', '点「评分本章」让多个模型打分（约 10~40 秒）'));
         if (opts && opts.actions) box.appendChild(h('div.mt12', null, opts.actions));
         return box;
       }
@@ -290,7 +290,7 @@ window.MZApp = (function () {
       }
       if (agg.dims && agg.dims.length) {
         const dl = h('div.mt12');
-        dl.appendChild(h('div.small.muted.mb8', { text: '十个维度（三模型取中位）' }));
+        dl.appendChild(h('div.small.muted.mb8', { text: '十个维度（多模型取中位）' }));
         agg.dims.forEach(function (d) {
           const v = d.score;
           dl.appendChild(h('div.dim-row', null,
@@ -302,7 +302,7 @@ window.MZApp = (function () {
       }
       const issues = agg.issues || [];
       if (issues.length) {
-        box.appendChild(h('div.small.muted.mt16.mb8', { text: '问题清单（带「共识」＝三个模型都提到）' }));
+        box.appendChild(h('div.small.muted.mt16.mb8', { text: '问题清单（带「共识」＝多个模型都提到）' }));
         const l = h('div.list');
         issues.forEach(function (it) {
           l.appendChild(li({
@@ -334,7 +334,7 @@ window.MZApp = (function () {
     },
   };
 
-  /* 把「三模型诊断」翻成一条能直接执行的改写指令。
+  /* 把「多模型诊断」翻成一条能直接执行的改写指令。
      只说 top_fix 太笼统，模型容易越改越平；这里把首要修改、拖后腿的维度、
      各模型的看法和具体改法一起说清楚，并锁死「不许改剧情、不许变短」。 */
   function hitFixInstruction(agg, retry) {
