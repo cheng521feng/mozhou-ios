@@ -756,7 +756,10 @@ window.MZEditor = (function () {
       } catch (e) { toast('导出失败：' + ((e && e.message) || e), 'bad'); }
     }
 
-    /* ---- AI 接着写 / 卡文了给三个走向 ---- */
+    /* ---- AI 接着写 / 卡文了给三个走向 ----
+       注意：这一簇（continueSheet / runContinue / ideasSheet）界面上已经不再挂任何按钮了 ——
+       「接着写（write）」并进了「写下一章」，同一章不会再被两条链路各扣一次钱。
+       代码留着只为兼容老客户端仍在打 /api/chapter/<id>/continue（mode=ideas 那条）。 ---- */
     function insertContinuation(text) {
       if (!ed) return;
       pushHistory();
@@ -896,9 +899,12 @@ window.MZEditor = (function () {
       return b;
     }
     tb('保存', 'primary', 'check', function () { save(true); });
-    tb('接着写', 'blue', 'spark', function () { continueSheet('write'); });
+    /* 写作动作只留这三个：「接着写」已经并进「写下一章」，不再单独开一个入口
+       （两个入口说的是同一件事，还会各扣一笔钱） */
+    tb('写下一章', 'blue', 'books', function () { writeNext(); });
+    tb('重写本章', '', 'spark', function () { regen(); });
+    tb('自动写到第N章', '', 'play', function () { autoWriteNext(); });
     tb('复制整章', '', 'copy', function () { copyChapter(); });
-    tb('重生成', '', 'spark', function () { regen(); });
     tb('去 AI 化', '', 'refresh', function () { deai(); });
     tb('起名', '', 'target', function () { autoTitle(); });
     tb('检查', 'blue', 'shield', function () { openInspect(); });
@@ -1262,14 +1268,15 @@ window.MZEditor = (function () {
       toast(okCopy ? '结果已复制' : '复制失败', okCopy ? 'ok' : 'bad');
     }
 
+    /* 重写本章 ＝ 精细重写：只这一章临时关掉快速模式，走满 审查 / 润色 / 深度去AI化 */
     async function regen() {
       const ok = await confirm(ed.dirty
-        ? '重生成整章：会覆盖当前正文，未保存的修改会丢失（原内容会存档，可回滚）。继续？'
-        : '重生成整章：会覆盖当前正文（原内容会存档，可回滚）。继续？',
+        ? '精细重写这一章：会覆盖当前正文，未保存的修改会丢失（原内容会存档，可回滚）。继续？'
+        : '精细重写这一章：会覆盖当前正文（原内容会存档，可回滚）。继续？',
         { okText: '继续', danger: true });
       if (!ok) return;
       pushHistory();
-      const res = await runOp('重生成整章', '/api/chapter/' + cid + '/regen', { match: '整章重生成' });
+      const res = await runOp('重写本章', '/api/chapter/' + cid + '/regen', { match: '整章重生成' });
       toast((res && res.msg) || '重生成完成', 'ok');
       haptic('success');
       await load();
@@ -1379,10 +1386,10 @@ window.MZEditor = (function () {
     function moreActions() {
       actions([
         { label: '用阅读器读这一章', sub: '沉浸阅读，左右翻章', icon: 'book', onPick: function () { guard(goRead()); } },
-        { label: '接着写（AI 往下写）', sub: '顺着章末接下去，先给你看再插进去', icon: 'spark', onPick: function () { continueSheet(); } },
-        { label: '写下一章（AI 补更）', sub: '这章差不多了，让 AI 接着往下开新章', icon: 'books', onPick: function () { guard(writeNext()); } },
+        { label: '写下一章', sub: '这一章就这样了，让 AI 接着往下开新章', icon: 'books', onPick: function () { guard(writeNext()); } },
+        { label: '重写本章（精细重写）', sub: '只这一章走满 审查 / 润色 / 去AI化，慢一点但更细', icon: 'spark', onPick: function () { guard(regen()); } },
+        { label: '自动写到第 N 章', sub: '无人值守：连着写，写完自动质检', icon: 'play', onPick: function () { guard(autoWriteNext()); } },
         { label: '切换作品（换一本书写）', sub: '还在写作台里，改的是同一本书的别的章', icon: 'books', onPick: function () { guard(openBookSheet()); } },
-        { label: '卡文了？给我三个走向', sub: '不写正文，只给想法', icon: 'target', onPick: function () { guard(runContinue('ideas', 0, '')); } },
         { label: '查找 / 替换', sub: '章内找字、批量替换（Ctrl/Cmd+F）', icon: 'menu', onPick: function () { toggleFind(); } },
         { label: '撤销上一步', sub: '快捷键 Ctrl/Cmd+Z', icon: 'refresh', onPick: function () { undo(); } },
         { label: '重做', sub: 'Ctrl/Cmd+Shift+Z', icon: 'refresh', onPick: function () { redo(); } },
@@ -1425,6 +1432,16 @@ window.MZEditor = (function () {
       const d = await api.get('/api/novel/' + nid);
       if (!d || !d.novel) { toast('拿不到这本书的信息', 'bad'); return; }
       A.askUpdate(d.novel);
+    }
+
+    /* 自动写到第 N 章：直接复用作品页那张「无人值守续写」表，参数只有一处 */
+    async function autoWriteNext() {
+      if (!ed) return;
+      if (ed.dirty) await save(false);
+      const d = await api.get('/api/novel/' + nid);
+      if (!d || !d.novel) { toast('拿不到这本书的信息', 'bad'); return; }
+      if (window.MZBook && MZBook.askAutoWrite) MZBook.askAutoWrite(d.novel);
+      else toast('无人值守入口没加载出来，退出重进一次试试', 'bad');
     }
 
     async function delChapter() {
