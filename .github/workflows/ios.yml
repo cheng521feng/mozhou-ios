@@ -162,8 +162,8 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations array" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:0 string zh-Hans" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:1 string en" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.9.31" "$PLIST" 2>/dev/null \
-            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 2.9.31" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.9.32" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 2.9.32" "$PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 35" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 35" "$PLIST"
           # 导出 txt：写完文件要能在「文件」App 里看到（我的 iPhone → 墨舟）
