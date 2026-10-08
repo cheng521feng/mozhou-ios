@@ -111,13 +111,13 @@ a { color: var(--accent); text-decoration: none; }
   color-scheme: light;
 }
 
-/* 墨：深色 */
+/* 墨：深色（默认状态 —— 深墨黑底 + 薄荷绿，跟 App 图标同一支色） */
 html:not(.light) {
-  --accent: #3ed39c;
+  --accent: #4ec9a0;
   --accent-ink: #04150f;
-  --accent-soft: rgba(62, 211, 156, .12);
+  --accent-soft: rgba(78, 201, 160, .14);
   --accent2: #5aa9ff;
-  --ok: #3ed39c;
+  --ok: #4ec9a0;
   --amber: #f5b44a;
   --red: #ff6b62;
   --blue: #5aa9ff;
@@ -154,7 +154,7 @@ html:not(.light) {
   --ring-line: rgba(255, 255, 255, .04);
   --bar-track: rgba(255, 255, 255, .07);
 
-  --ambient-a: rgba(62, 211, 156, .07);
+  --ambient-a: rgba(78, 201, 160, .07);
   --ambient-b: rgba(90, 169, 255, .05);
 
   --sh-1: 0 1px 2px rgba(0, 0, 0, .5);
@@ -231,6 +231,9 @@ pre { padding: 10px 12px; overflow: auto; line-height: 1.55; }
   display: flex; flex-direction: column;
   height: 100vh; height: 100dvh;
   padding-bottom: var(--safe-b);
+  /* 横屏（灵动岛机型尤其明显）：岛 / home 指示条在左右两侧，正文别钻到它们底下 */
+  padding-left: var(--safe-l, 0px);
+  padding-right: var(--safe-r, 0px);
 }
 .main {
   flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain;
@@ -332,6 +335,8 @@ pre { padding: 10px 12px; overflow: auto; line-height: 1.55; }
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
   height: calc(var(--tab-h) + var(--safe-b));
   padding-bottom: var(--safe-b);
+  padding-left: var(--safe-l, 0px);
+  padding-right: var(--safe-r, 0px);
   display: flex; align-items: stretch;
   background: var(--tab-bg);
   -webkit-backdrop-filter: saturate(160%) blur(16px);
@@ -855,6 +860,23 @@ div.cover {
 .bk-more svg { width: 16px; height: 16px; }
 .bk-dot { }
 .bk-pick { }
+
+/* 作品页的四个页签：章节 / 人物 / 伏笔 / 故事记忆。
+   以前这一页是把所有卡片一路堆下来，手机上要滑很久；现在按「看什么」分开。 */
+.bk-tabs { margin: 14px 0 2px; }
+.bk-tabs .seg button { padding: 8px 13px; }
+
+/* 底部动作条：写下一章 / 自动写到第N章 / 生成封面。
+   贴在滚动区下沿（.main 的底边在标签栏上方，所以按 --tab-h 让开它），
+   章节列表再长也不用一路滑到底才能接着写。 */
+.bk-actbar {
+  position: sticky; z-index: 11; bottom: calc(var(--tab-h) + 8px);
+  margin: 18px -16px 0; padding: 10px 16px 12px;
+  background: var(--bg);
+  border-top: 1px solid var(--line-soft);
+}
+.bk-actbar .btn-row { margin-top: 0; }
+.bk-actbar .btn { min-width: 0; flex: 1 1 auto; }
 
 /* ============================== 表单 ============================== */
 .fld { display: flex; flex-direction: column; gap: 7px; margin: 12px 0; }
