@@ -42,22 +42,25 @@ window.MZ = (function () {
      App 里的页面跑在 capacitor://localhost，属于跨域，所以接口都要用绝对地址
      打到云服务器并带会话头。window.MZ_CLOUD 留给自己调试（本地假后端时设成空串）。
 
-     入口不止一个，按「越稳越靠前」排：
-        1) 8443 的 https 入口（443 上的证书是正规的，但国内对「未备案域名」的
-           拦截只在 80/443 上生效；同一张证书挂到 8443 通常就能过，口令和令牌
-           在网络上是密文。要阿里云控制台放行 8443/tcp 才通；没放行就是
-           2.6 秒探测超时 —— 下面几条是并行探的，不拖累别的入口）；
-        2) https 域名入口（证书正规，走 443；部分网络下会被中间设备重置）；
-        3) 直连 IP + 8900 端口（不经过 80/443，躲得开云厂商对「未备案域名」的
-           拦截，但要先在阿里云防火墙放行 8900；放行了它就是最稳的一个）；
-        4) 纯 IP 的 80 端口（老兜底；纯 IP 不会被查备案，实测也能通）。
-     启动时全部并行探一次（探不通就 2.6 秒超时，互不拖累），把第一个能用的
-     记在本地，之后一直用它；真发请求时要是又断了，会自动重探、换一个入口重试一次。 */
-  const CLOUDS_RAW = ['https://47-101-72-16.sslip.io:8443', 'https://47-101-72-16.sslip.io',
-    'http://47.101.72.16:8900', 'http://47.101.72.16'];
+    入口不止一个，全部并行验一遍（能拿到我们自己网关的 JSON 才算通），挑最快的那条：
+       1) 纯 IP 的 80 端口（不查备案，延迟最低，能连上就用它）；
+       2) https 域名入口（证书正规，走 443；部分网络下会被中间设备重置）；
+       3) Cloudflare 隧道入口（https，域名不在国内备案范围，躲得开云厂商的
+          「未备案」拦截；国内部分网络连 Cloudflare 会慢或不通，探不通就自动跳过）；
+       4) 8443 的 https 入口（把 443 上那张证书挂到 8443，同样躲得开「未备案」
+          拦截。要阿里云控制台放行 8443/tcp 才通；没放行就是探测超时，
+          和别的入口并行探，不拖累）。
+     每次开 App 的第一条请求都要先过一遍入口验证：本地记着的那个入口先验一次，
+     验不通就全量重探（不然会拿着早就失效的入口一直转圈，谁都登不上）；
+     真发请求时要是断了，也会自动换一个入口重试一次。 */
+  const CLOUDS_RAW = ['http://47.101.72.16', 'https://47-101-72-16.sslip.io',
+    'https://surrounded-enormous-mailing-scott.trycloudflare.com',
+    'https://47-101-72-16.sslip.io:8443'];
   /* 页面自己是 https 的时候，浏览器会把 http:// 的请求当「混合内容」直接拦掉
-     （控制台一堆 Mixed Content，探测必然失败）。所以 https 页面只留 https 入口；
-      ipa 里页面跑在 capacitor://localhost，不受这条限制，http 兜底入口照旧保留。 */
+     （控制台一堆 Mixed Content，探测必然失败）。所以 https 页面只留 https 入口。
+     注意这条只按「页面协议」判：桌面端 / 安卓壳里的页面是从入口地址加载出来的，
+     可能是 https；ipa 里页面跑在 capacitor://localhost，保留 http 兜底入口，
+     它要是被拦（探不通）自然会落到 https 的那几条上。 */
   const CLOUDS_ALL = (location.protocol === 'https:')
     ? CLOUDS_RAW.filter(function (b) { return b.indexOf('https:') === 0; })
     : CLOUDS_RAW;
@@ -65,6 +68,7 @@ window.MZ = (function () {
     ? (String(window.MZ_CLOUD) ? [String(window.MZ_CLOUD)] : [])
     : CLOUDS_ALL;
   const CLOUD_KEY = 'mz_cloud';
+  let PINNED = false;          /* 入口就是「页面自己那个」：不用再验，直接信 */
   let CLOUD = '';
   try { CLOUD = localStorage.getItem(CLOUD_KEY) || ''; } catch (e) { CLOUD = ''; }
   if (CLOUD && CLOUDS.indexOf(CLOUD) < 0) CLOUD = '';   /* 入口名单变了就重探 */
@@ -73,16 +77,19 @@ window.MZ = (function () {
      不要先拿 localStorage 里那个可能已经失效的旧入口发一轮请求、全失败了才回头重探。 */
   try {
     const _org = location.origin;
-    if (_org && _org !== 'null' && CLOUDS.indexOf(_org) >= 0) CLOUD = _org;
+    if (_org && _org !== 'null' && CLOUDS.indexOf(_org) >= 0) { CLOUD = _org; PINNED = true; }
   } catch (e) { /* 忽略 */ }
 
   /* 探测一个入口：能拿到网关的 JSON（哪怕只是「未登录」的 401）就算通；
-     云厂商的拦截页是 text/html，不算通。 */
-  function probeEntry(base) {
+     云厂商的拦截页是 text/html，不算通。
+     探通返回耗时毫秒（用来挑最快的那条），探不通返回 -1。 */
+  const PROBE_MS = 4000;
+  function probeEntry(base, ms) {
     return new Promise(function (resolve) {
       let done = false;
-      const fin = function (v) { if (!done) { done = true; resolve(v); } };
-      const to = setTimeout(function () { fin(false); }, 2600);
+      const t0 = Date.now();
+      const fin = function (ok) { if (!done) { done = true; resolve(ok ? (Date.now() - t0) : -1); } };
+      const to = setTimeout(function () { fin(false); }, ms || PROBE_MS);
       let p;
       try {
         p = fetch(base + '/api/live', {
@@ -99,27 +106,56 @@ window.MZ = (function () {
   }
 
   let probing = null;
-  function pickCloud(force) {
+  /* 入口全部并行探一遍（探不通的最多等 PROBE_MS，互不拖累），
+     谁最快给出「我们自己的 JSON」就用谁；一条都探不通就留着原来那条赌一把。 */
+  function pickCloud(force, skipBase) {
     if (CLOUD && !force) return Promise.resolve(CLOUD);
     if (!CLOUDS.length) return Promise.resolve('');
     if (probing) return probing;
-    const list = CLOUD
+    let list = CLOUD
       ? [CLOUD].concat(CLOUDS.filter(function (b) { return b !== CLOUD; }))
       : CLOUDS.slice();
-    probing = Promise.all(list.map(probeEntry)).then(function (rs) {
+    /* skipBase：调用方已经验过、确定不通的那个入口，不用再探一遍 */
+    if (skipBase) list = list.filter(function (b) { return b !== skipBase; });
+    if (!list.length) return Promise.resolve(CLOUD || '');
+    probing = Promise.all(list.map(function (b) { return probeEntry(b); })).then(function (rs) {
       probing = null;
-      let best = list[0];
-      for (let i = 0; i < list.length; i++) { if (rs[i]) { best = list[i]; break; } }
-      useCloud(best);          /* 记住这个入口，之后的请求直接用它，不再探测 */
-      return best;
-    }).catch(function () { probing = null; useCloud(list[0]); return list[0]; });
+      let best = '', lat = -1;
+      for (let i = 0; i < list.length; i++) {
+        if (rs[i] >= 0 && (lat < 0 || rs[i] < lat)) { best = list[i]; lat = rs[i]; }
+      }
+      if (!best) best = CLOUD || list[0];
+      return useCloud(best);   /* 记住这个入口，之后的请求直接用它，不再探测 */
+    }).catch(function () { probing = null; return useCloud(CLOUD || list[0]); });
     return probing;
   }
   function useCloud(base) {
     if (!base || base === CLOUD) return CLOUD;
     CLOUD = base;
+    PINNED = false;
     try { localStorage.setItem(CLOUD_KEY, base); } catch (e) { /* 忽略 */ }
     return CLOUD;
+  }
+  /* 每次开 App 的第一条请求都先过这里：
+     - 页面自己那个入口（安卓壳加载的就是它）直接用，不折腾；
+     - 本地记着的那个入口先验一次，验不通就全量重探。
+     以前是「有缓存就直接用」，缓存里的入口要是早就失效了，
+     人就会卡在「一直转圈，谁都登不上」上面。 */
+  let entryChecked = false;
+  function ready() {
+    if (!CLOUDS.length) return Promise.resolve(CLOUD);
+    if (PINNED) return Promise.resolve(CLOUD);
+    if (!CLOUD) return pickCloud(false);
+    if (entryChecked) return Promise.resolve(CLOUD);
+    entryChecked = true;
+    const cur = CLOUD;
+    return probeEntry(cur).then(function (ms) {
+      if (ms >= 0) return cur;
+      return pickCloud(true, cur).catch(function () { return cur; });
+    });
+  }
+  function diag() {
+    return { cloud: CLOUD, pinned: PINNED, checked: entryChecked, list: CLOUDS.slice() };
   }
   /* 云厂商的「未备案」拦截页：403 + html，且不是 JSON */
   function blockedPage(resp) {
@@ -196,27 +232,34 @@ window.MZ = (function () {
     }
 
     let resp;
+    let used = CLOUD;
+    let blocked = false;
+    /* 换一个（和这次不一样的）入口；换不到就返回空串，让调用方如实报错 */
+    async function switchEntry() {
+      const nb = await pickCloud(true).catch(function () { return ''; });
+      const real = useCloud(nb);
+      return (real && real !== used) ? real : '';
+    }
     try {
-      if (!CLOUD && CLOUDS.length) await pickCloud(false);
+      await ready();
+      used = CLOUD;
       resp = await fetch(url(path), init);
-      if (!opts._retry && blockedPage(resp)) {
-        /* 域名被云厂商拦了（403 拦截页）：换入口再来一次 */
-        if (timer) clearTimeout(timer);
-        const nb = await pickCloud(true).catch(function () { return ''; });
-        useCloud(nb);
-        return req(path, Object.assign({}, opts, { _retry: true }));
-      }
+      blocked = blockedPage(resp);
     } catch (e) {
       if (timer) clearTimeout(timer);
-      if (e && e.name === 'AbortError') throw new ApiError('超时：服务端 ' + Math.round(ms / 1000) + ' 秒内没有响应', -1);
-      /* 网络层失败：多半是入口域名被拦（TLS 被重置），换入口重试一次 */
-      if (!opts._retry && CLOUDS.length > 1) {
-        const nb2 = await pickCloud(true).catch(function () { return ''; });
-        useCloud(nb2);
-        if (nb2) return req(path, Object.assign({}, opts, { _retry: true }));
+      /* 超时 / 网络层失败都先换一个入口重试一次（入口可能早就失效了） */
+      if (!opts._retry && await switchEntry()) {
+        return req(path, Object.assign({}, opts, { _retry: true, timeout: Math.min(ms, 90000) }));
       }
       MZ.online = false;
-      throw new ApiError('连不上服务器，请检查手机网络后重试', -2);
+      if (e && e.name === 'AbortError') throw new ApiError('超时：服务端 ' + Math.round(ms / 1000) + ' 秒内没有响应', -1);
+      throw new ApiError('连不上服务器：请换个网络（WiFi / 流量）再试', -2);
+    }
+    if (blocked && !opts._retry) {
+      /* 域名被云厂商拦了（403 拦截页）：换入口再来一次 */
+      if (timer) clearTimeout(timer);
+      if (await switchEntry()) return req(path, Object.assign({}, opts, { _retry: true }));
+      throw new ApiError('服务器入口被拦截：请换个网络（WiFi / 流量）再试', -3);
     }
     if (timer) clearTimeout(timer);
     MZ.online = true;
@@ -253,24 +296,39 @@ window.MZ = (function () {
   /* 登录 / 注册 / 发验证码共用的「直接 POST 到服务器」：走同一套入口自动切换。
      登录页在没会话时就得能进，所以不能借 req()（req 会把 401 当成会话过期弹回登录页）。
      返回 {resp, data}；网络层失败会自动换入口重试一次。 */
+  /* 登录 / 注册 / 短信这类「还没有会话」的 POST：自带 20 秒超时，
+     失败就换入口重试一次；换不到别的入口就把真实原因说给用户听，
+     别让人对着转圈等两分钟。 */
+  function connErr(e) {
+    if (e && e.name === 'AbortError') return new Error('连接超时：请检查手机网络后重试');
+    return new Error('连不上服务器：请换个网络（WiFi / 流量）再试');
+  }
   async function postCloud(path, body) {
     const payload = JSON.stringify(body || {});
-    const send = function () {
-      return fetch(url(path), {
-        method: 'POST', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json', 'X-Mz-App': '1' },
-        body: payload,
-      });
+    const send = async function () {
+      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      let timer = null;
+      if (ctrl) timer = setTimeout(function () { ctrl.abort(); }, 20000);
+      try {
+        return await fetch(url(path), {
+          method: 'POST', cache: 'no-store',
+          headers: { 'Content-Type': 'application/json', 'X-Mz-App': '1' },
+          body: payload,
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+      } finally { if (timer) clearTimeout(timer); }
     };
-    if (!CLOUD && CLOUDS.length) await pickCloud(false);
+    await ready();
+    const used = CLOUD;
     let resp;
     try {
       resp = await send();
       if (blockedPage(resp)) throw new Error('blocked');
     } catch (e) {
       const nb = await pickCloud(true).catch(function () { return ''; });
-      useCloud(nb);
-      resp = await send();
+      const real = useCloud(nb);
+      if (!real || real === used) throw connErr(e);
+      try { resp = await send(); } catch (e2) { throw connErr(e2); }
     }
     let data = null;
     try { data = await resp.json(); } catch (e2) { data = null; }
@@ -289,20 +347,30 @@ window.MZ = (function () {
      这些话原样说给用户听。 */
   async function postAuth(path, body) {
     const payload = JSON.stringify(body || {});
-    const send = function () {
+    const send = async function () {
+      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      let timer = null;
+      if (ctrl) timer = setTimeout(function () { ctrl.abort(); }, 20000);
       const hd = authHeaders();
       hd['Content-Type'] = 'application/json';
-      return fetch(url(path), { method: 'POST', cache: 'no-store', headers: hd, body: payload });
+      try {
+        return await fetch(url(path), {
+          method: 'POST', cache: 'no-store', headers: hd, body: payload,
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+      } finally { if (timer) clearTimeout(timer); }
     };
-    if (!CLOUD && CLOUDS.length) await pickCloud(false);
+    await ready();
+    const used = CLOUD;
     let resp;
     try {
       resp = await send();
       if (blockedPage(resp)) throw new Error('blocked');
     } catch (e) {
       const nb = await pickCloud(true).catch(function () { return ''; });
-      useCloud(nb);
-      resp = await send();
+      const real = useCloud(nb);
+      if (!real || real === used) throw connErr(e);
+      try { resp = await send(); } catch (e2) { throw connErr(e2); }
     }
     let data = null;
     try { data = await resp.json(); } catch (e2) { data = null; }
@@ -1142,7 +1210,7 @@ window.MZ = (function () {
     changePassword: changePassword, changePasswordByCode: changePasswordByCode,
     url: url, img: img, authHeaders: authHeaders, setSession: setSession, logout: logout,
     localSession: localSession,
-    clouds: CLOUDS.slice(), pickCloud: pickCloud, useCloud: useCloud,
+   clouds: CLOUDS.slice(), pickCloud: pickCloud, useCloud: useCloud, ready: ready, diag: diag,
     get CLOUD() { return CLOUD || CLOUDS[0] || ''; },
     online: true,
   };
