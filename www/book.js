@@ -7,9 +7,11 @@
              每日章数 / 每章目标字数 / 计划总章数 / 参与自动更新 / 书架置顶）
      大纲 —— AI 根据书名写大纲（书名 + 简介 → 简介 / 三幕大纲 / 人物 / 前 20 章章纲，
              先给你看，点「采纳」才写回设定，不会偷偷覆盖）
+     四个页签 —— 章节 / 人物 / 伏笔 / 故事记忆（点标题下面那排切）
+     底部动作 —— 写下一章 / 自动写到第 N 章 / 生成封面
      写作 —— 补更（续写）、无人值守续写、重写前几章
-     质量 —— 三模型全书体检、质检全书、批量命名、全书合规预检
-     分析 —— 伏笔台账、前情摘要（看 + 用 AI 重建）、AI 爆款化书名/简介
+     质量 —— 质检全书、全书合规预检
+     分析 —— 伏笔台账、前情摘要（看 + 用 AI 重建）
      物料 —— AI 生成封面、导出 txt
      章节 —— 点开就写、重命名、删除（进回收站）
      危险 —— 删除作品（进回收站，「我的 → 回收站」里能恢复）
@@ -136,17 +138,135 @@ window.MZBook = (function () {
       return out;
     }
     out.appendChild(head(n));
-    out.appendChild(groups(n));
     let nv = {};
     try {
       const d = await api.get('/api/novel/' + nid);
       nv = (d && d.novel) || {};
-    } catch (e) { /* 详情拿不到也不影响上面的按钮 */ }
-    out.appendChild(summaryCard(n, nv));
-    out.appendChild(bibleCard(n, nv));
-    out.appendChild(foreshadowCard(n, nv));
-    out.appendChild(chaptersCard(nid, nv));
+    } catch (e) { /* 详情拿不到也不影响下面的页签 */ }
+
+    /* 四个页签：章节 / 人物 / 伏笔 / 故事记忆。
+       以前这一页是把所有卡片一路堆下来（前情摘要、Bible、伏笔、章节、一堆按钮），
+       手机上要滑很久才找得到想看的那一段；现在按「看什么」分四个页签，
+       写作、剪号... 那些动作收在右上角「更多」和底部操作条里。 */
+    const TABS = [
+      { key: 'chapters', label: '章节' },
+      { key: 'characters', label: '人物' },
+      { key: 'foreshadows', label: '伏笔' },
+      { key: 'memory', label: '故事记忆' },
+    ];
+    let tab = 'chapters';
+    const tabBox = h('div.bk-tabs');
+    const pane = h('div.bk-pane');
+    function paint() {
+      clear(tabBox);
+      tabBox.appendChild(A.seg(TABS, tab, function (k) { tab = k; haptic('light'); paint(); }));
+      clear(pane);
+      if (tab === 'chapters') pane.appendChild(chaptersCard(nid, nv));
+      else if (tab === 'characters') pane.appendChild(charactersCard(n, nv));
+      else if (tab === 'foreshadows') pane.appendChild(foreshadowCard(n, nv));
+      else { pane.appendChild(bibleCard(n, nv)); pane.appendChild(summaryCard(n, nv)); }
+    }
+    out.appendChild(tabBox);
+    out.appendChild(pane);
+    /* 底部大按钮上把价钱写出来（跟写作页同一个口径，价格问后端） */
+    const price = await A.chapterPrice(n.target_words || 2500, 'continue');
+    out.appendChild(actionBar(n, price));
+    paint();
     return out;
+  }
+
+  /* 底部动作条：写下一章 / 自动写到第 N 章 / 生成封面。
+     sticky 贴在屏底（让开底部标签栏），章节列表再长也不用滑到底才能接着写。 */
+  function actionBar(n, price) {
+    return h('div.bk-actbar', null, buttons([
+      { label: price ? ('写下一章 · ' + price + ' 墨币') : '写下一章',
+        tone: 'primary', onTap: function () { A.askUpdate(n); } },
+      { label: '自动写到第N章', onTap: function () { unattended(n); } },
+      { label: n.cover_url ? '重画封面' : '生成封面', onTap: function () { genCover(n); } },
+    ]));
+  }
+
+  /* ---------- 人物：novel.characters（补更 / 重写时会喂给模型的人物小传） ---------- */
+  function charactersCard(n, nv) {
+    const ta = h('textarea.inp', { rows: '10', spellcheck: 'false',
+      placeholder: '主要人物 + 一句话人设，例如：\n林晚——女主，绣娘，外柔内刚，认死理。\n沈砚——男主，漕帮少主，嘴上刻薄心里软。\n（这段会随补更一起喂给模型，写清楚谁是谁，模型就不容易把人写串。）' });
+    ta.value = nv.characters || n.characters || '';
+    const box = h('div.card');
+    box.appendChild(h('div.card-head', null, h('h3', { text: '人物' }),
+      h('span.sp', { text: '补更时会喂给模型' })));
+    box.appendChild(ta);
+    box.appendChild(buttons([
+      { label: '保存', tone: 'primary', onTap: async function () {
+        try {
+          await api.put('/api/novel/' + n.id, { characters: ta.value });
+          toast('人物已保存', 'ok'); haptic('success');
+        } catch (e) { toast(e.message, 'bad'); }
+      } },
+      { label: '从正文抽取', tone: 'blue', onTap: function () { extractCharacters(n, ta); } },
+    ]));
+    box.appendChild(h('div.footnote', { text: '「从正文抽取」会让模型通读最近几章，把人名和当前状态列出来，你确认后再合并进来。' }));
+    return box;
+  }
+
+  /* AI 从最近几章抽人物：列出来给用户选，选中的合并到上面那个「人物」里 */
+  async function extractCharacters(n, ta) {
+    const bs = busySheet('AI 正在读最近几章…');
+    let r = null;
+    try { r = await api.post('/api/novel/' + n.id + '/cards/suggest', { kind: 'character' }, { timeout: 300000 }); }
+    catch (e) { bs.close(); toast(e.message, 'bad'); return; }
+    bs.close();
+    const items = (r && r.items) || [];
+    if (!items.length) { toast('这次没抽到新人物', 'warn'); return; }
+    const on = {};
+    items.forEach(function (x) { on[x.name] = true; });
+    sheet({
+      title: '从正文抽到的人物',
+      build: function (b, close) {
+        b.appendChild(h('div.fld-hint', { text: '点一下取消勾选；合并时名字已经在里面的会自动跳过，不会重复。' }));
+        const wrap = h('div.chips.mt12');
+        items.forEach(function (x) {
+          const c = h('button.chip.pick' + (on[x.name] ? '.on' : ''), { type: 'button', text: x.name });
+          c.addEventListener('click', function () {
+            haptic('light');
+            on[x.name] = !on[x.name];
+            c.classList.toggle('on', on[x.name]);
+          });
+          wrap.appendChild(c);
+        });
+        b.appendChild(wrap);
+        const l = h('div.list.mt12');
+        items.forEach(function (x) {
+          l.appendChild(li({
+            title: x.name,
+            sub: Object.keys(x.data || {}).map(function (k) { return k + '：' + x.data[k]; }).join(' · ').slice(0, 140) || '（正文里没给到更多细节）',
+          }));
+        });
+        b.appendChild(l);
+        b.appendChild(buttons([
+          { label: '合并到人物', tone: 'primary', onTap: async function () {
+            const add = items.filter(function (x) { return on[x.name]; });
+            const cur = String(ta.value || '');
+            const lines = cur ? cur.replace(/\s+$/, '').split('\n') : [];
+            let added = 0;
+            add.forEach(function (x) {
+              const dup = lines.some(function (l2) { return l2.indexOf(x.name) === 0; });
+              if (dup) return;
+              const tail = Object.keys(x.data || {}).map(function (k) { return x.data[k]; }).join('；');
+              lines.push(x.name + '——' + tail);
+              added++;
+            });
+            ta.value = lines.join('\n');
+            close();
+            if (!added) { toast('这些人物都已经在里面了', 'warn'); return; }
+            try {
+              await api.put('/api/novel/' + n.id, { characters: ta.value });
+              toast('已合并 ' + added + ' 人', 'ok'); haptic('success');
+            } catch (e) { toast(e.message, 'bad'); }
+          } },
+          { label: '先不要', onTap: function () { close(); } },
+        ]));
+      },
+    });
   }
 
   function coverNode(n, cls) {
@@ -206,44 +326,6 @@ window.MZBook = (function () {
     if (!p) return '开始阅读' + (n.chapter_count ? '（共 ' + n.chapter_count + ' 章）' : '');
     const tail = p.label.length > 15 ? p.label.slice(0, 15) + '…' : p.label;
     return '继续阅读 · ' + tail;
-  }
-
-  function groups(n) {
-    const box = h('div');
-    const row = function (items) { box.appendChild(buttons(items)); };
-    row([
-      { label: readLabel(n), tone: 'primary', onTap: function () { openReader(n.id); } },
-    ]);
-    row([
-      { label: '补更（续写）', tone: 'primary', onTap: function () { A.askUpdate(n); } },
-      { label: '无人值守续写', onTap: function () { unattended(n); } },
-    ]);
-    row([
-      { label: 'AI 根据书名写大纲', tone: 'blue', onTap: function () { aiOutline(n); } },
-      { label: '编辑资料', onTap: function () { editMeta(n); } },
-    ]);
-    row([
-      { label: '三模型全书体检', onTap: function () { A.bookHitReview(n); } },
-      { label: '质检全书', onTap: function () { runJob(n, '/api/novel/' + n.id + '/analyze', '质检全书'); } },
-    ]);
-    row([
-      { label: '批量命名', onTap: function () { runJob(n, '/api/novel/' + n.id + '/title_all', '批量命名'); } },
-      { label: '全书合规预检', onTap: function () { runJob(n, '/api/novel/' + n.id + '/compliance', '全书合规预检'); } },
-    ]);
-    row([
-      { label: '伏笔台账', onTap: function () { foreshadow(n); } },
-      { label: 'AI 爆款化书名/简介', onTap: function () { viralize(n); } },
-    ]);
-    row([
-      { label: n.cover_url ? '重画封面' : 'AI 生成封面', onTap: function () { genCover(n); } },
-      { label: '保存封面', onTap: function () { saveCover(n); } },
-      { label: '重写前几章', onTap: function () { A.askRewrite(n); } },
-    ]);
-    row([
-      { label: '导出 txt', onTap: function () { A.exportNovel(n); } },
-      { label: '删除作品', tone: 'danger', onTap: function () { remove(n); } },
-    ]);
-    return box;
   }
 
   /* ---------- 前情摘要：看 / 手改 / 用 AI 重建 ---------- */
@@ -694,58 +776,6 @@ window.MZBook = (function () {
     return box;
   }
 
-  /* ---------- AI 爆款化书名 / 简介 ---------- */
-  async function viralize(n) {
-    const bs = busySheet('AI 正在读全书要点…');
-    let r = null;
-    try { r = await api.post('/api/novel/' + n.id + '/viralize', {}, { timeout: 300000 }); }
-    catch (e) { bs.close(); toast(e.message, 'bad'); return; }
-    bs.close();
-    const titles = (r && r.titles) || [];
-    sheet({
-      title: '爆款化候选',
-      build: function (b, close) {
-        b.appendChild(h('div.section-title', null, h('span', { text: '书名候选' }), h('span.sp', { text: '点一下即采纳' })));
-        if (!titles.length) b.appendChild(h('div.small.muted', { text: '这次没返回候选。' }));
-        const l = h('div.list');
-        titles.forEach(function (t) {
-          l.appendChild(li({
-            title: String(t), arrow: true,
-            onTap: async function () {
-              close();
-              const bs2 = busySheet('正在改名…');
-              try {
-                await api.put('/api/novel/' + n.id, { title: String(t) });
-                bs2.close();
-                toast('书名已改为《' + t + '》', 'ok');
-                await A.loadHero();
-                A.render();
-              } catch (e) { bs2.close(); toast(e.message, 'bad'); }
-            },
-          }));
-        });
-        b.appendChild(l);
-        b.appendChild(h('div.section-title', { text: '爆款简介' }));
-        const ta = h('textarea.inp', { rows: '7', spellcheck: 'false' });
-        ta.value = (r && r.intro) || '';
-        b.appendChild(ta);
-        b.appendChild(buttons([
-          { label: '采纳这段简介', tone: 'primary', onTap: async function () {
-            close();
-            const bs2 = busySheet('正在保存…');
-            try {
-              await api.put('/api/novel/' + n.id, { intro: ta.value });
-              bs2.close();
-              toast('简介已更新', 'ok');
-              await A.loadHero();
-              A.render();
-            } catch (e) { bs2.close(); toast(e.message, 'bad'); }
-          } },
-        ]));
-      },
-    });
-  }
-
   /* ---------- 封面：保存 / 预览 / 重画 ---------- */
   function coverName(n) { return (n.title || 'cover') + '-封面.png'; }
 
@@ -835,23 +865,34 @@ window.MZBook = (function () {
   }
 
   /* ---------- 「更多」 ---------- */
+  /* ---------- 「更多」：不放在页面上的动作都收在这张表里 ---------- */
   function moreSheet(nid) {
     const n = A.findNovel(nid);
     if (!n) return;
     actions([
-      { label: '编辑资料', icon: 'edit', onPick: function () { editMeta(n); } },
-      { label: n.pinned ? '取消置顶' : '置顶到书架最前', icon: 'star',
-        onPick: function () { A.setPinned([n.id], !n.pinned); } },
+      { label: readLabel(n), icon: 'book', onPick: function () { openReader(n.id); } },
+      { label: '无人值守续写', icon: 'play', sub: '连着写几章，写完自动质检',
+        onPick: function () { unattended(n); } },
       { label: 'AI 根据书名写大纲', icon: 'spark',
         sub: n.has_outline ? '会覆盖现有大纲，先给你看再采纳' : '这本书还没有大纲',
         onPick: function () { aiOutline(n); } },
-      { label: '无人值守续写', icon: 'play', onPick: function () { unattended(n); } },
+      { label: '编辑资料', icon: 'edit', onPick: function () { editMeta(n); } },
+      { label: n.pinned ? '取消置顶' : '置顶到书架最前', icon: 'star',
+        onPick: function () { A.setPinned([n.id], !n.pinned); } },
+      { label: '质检全书', icon: 'target', sub: '逐章打分，看哪几章弱',
+        onPick: function () { runJob(n, '/api/novel/' + n.id + '/analyze', '质检全书'); } },
+      { label: '全书合规预检', icon: 'shield', sub: '本机词表扫全书，秒出',
+        onPick: function () { runJob(n, '/api/novel/' + n.id + '/compliance', '全书合规预检'); } },
+      { label: 'AI 梳理伏笔台账', icon: 'layers', sub: '点「伏笔」页签也能看清单',
+        onPick: function () { foreshadow(n); } },
+      { label: '重写前几章', icon: 'refresh', onPick: function () { A.askRewrite(n); } },
       { label: n.cover_url ? '重画封面' : 'AI 生成封面', icon: 'spark', onPick: function () { genCover(n); } },
       { label: '保存封面', icon: 'download', sub: '存到相册 / 文件', onPick: function () { saveCover(n); } },
       { label: '导出 txt', icon: 'download', onPick: function () { A.exportNovel(n); } },
       { label: '删除作品', icon: 'trash', danger: true, sub: '进回收站，可恢复', onPick: function () { remove(n); } },
     ], { title: n.title || '作品' });
   }
+
 
   return {
     open: open, editMeta: editMeta, aiOutline: aiOutline, remove: remove,
