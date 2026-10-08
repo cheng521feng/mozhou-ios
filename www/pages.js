@@ -1204,10 +1204,6 @@
     box.appendChild(kpis);
     box.appendChild(h('div.footnote', { text: '1 墨币 = 0.01 元 · 余额 ≈ ' + bYuan(st.balance, per)
       + ' 元 · 失败任务自动全额退款' }));
-    if (sub && sub.shared_by) {
-      box.appendChild(h('div.footnote', { text: '团队额度：由 ' + sub.shared_by + ' 开通，共 '
-        + (sub.members || []).length + ' 人合用 ' + (sub.chapters || 0) + ' 章/月。' }));
-    }
     return box;
   }
 
@@ -1246,7 +1242,7 @@
         const btn = h('button.tier', { type: 'button' },
           h('span.t-yuan', null, h('b', { text: bNum(yuan) }), h('i', { text: ' 元/' + unit })),
           h('span.t-coins', null, h('b', { text: String(p.chapters) }), h('i', { text: ' 章/' + unit })),
-          h('span.t-bonus', { text: p.label + (p.vip ? ' · VIP 队列' : '') + (p.shared ? ' · 团队共享' : '')
+          h('span.t-bonus', { text: p.label + (p.vip ? ' · VIP 队列' : '')
             + (annual && p.annual_save ? ' · 省 ' + bNum(p.annual_save) + ' 元' : '') }));
         btn.addEventListener('click', function () {
           haptic('light');
