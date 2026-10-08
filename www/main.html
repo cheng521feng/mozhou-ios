@@ -7,14 +7,16 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="墨舟" />
-<meta name="theme-color" content="#f2f1ee" />
+<meta name="theme-color" content="#0c0d0f" />
 <meta name="color-scheme" content="light dark" />
 <!-- 首屏外观：在样式表生效前就把 html.light 打上，冷启动不会先闪一下 -->
 <script>
 (function () {
   try {
+    // 默认深墨黑（品牌底色）。只有用户明确选了「浅色」、或选了「跟随系统」且系统是浅色，
+    // 才走纸白那一套；没存过偏好时不再跟随系统 —— 冷启动第一眼必须是品牌色。
     var t = localStorage.getItem('mz_theme');
-    var light = (t === 'light') || ((t !== 'dark') && window.matchMedia
+    var light = (t === 'light') || (t === 'system' && window.matchMedia
       && window.matchMedia('(prefers-color-scheme: light)').matches);
     if (light) document.documentElement.classList.add('light');
     var m = document.querySelector('meta[name=theme-color]');
@@ -155,8 +157,8 @@
   <nav class="tabbar" id="tabbar">
   <!-- 电脑端左侧栏的品牌块（desktop.css 里窄窗口隐藏；手机端 www/ 没有这个文件） -->
   <div class="sb-brand" aria-hidden="true"><i class="sb-mark"></i><b>墨舟创作工坊</b></div>
-    <button class="tab on" data-tab="books"><span class="tb-ico" data-ico="books"></span><b>书架</b></button>
-    <button class="tab" data-tab="write"><span class="tb-ico" data-ico="write"></span><b>写作</b></button>
+    <button class="tab" data-tab="books"><span class="tb-ico" data-ico="books"></span><b>书架</b></button>
+    <button class="tab on" data-tab="write"><span class="tb-ico" data-ico="write"></span><b>写作</b></button>
     <button class="tab" data-tab="jobs"><span class="tb-ico" data-ico="jobs"></span><b>任务</b><span class="tbadge" id="badgeJobs" hidden></span></button>
     <button class="tab" data-tab="me"><span class="tb-ico" data-ico="me"></span><b>我的</b></button>
   </nav>
@@ -202,12 +204,12 @@
 <!-- 桌面端：页面是本地墨舟服务发出来的，接口就走同源相对路径，
      不连云端那三个入口（那三个是给手机 App 用的）。 -->
 <script>window.MZ_CLOUD = ''; window.MZ_NO_401_REDIRECT = 1;</script>
-<script src="api.js?v=20261008c"></script>
-<script src="app.js?v=20261008c"></script>
-<script src="pages.js?v=20261008c"></script>
-<script src="editor.js?v=20261008c"></script>
-<script src="book.js?v=20261008c"></script>
-<script src="reader.js?v=20261008c"></script>
+<script src="api.js?v=20261009a"></script>
+<script src="app.js?v=20261009a"></script>
+<script src="pages.js?v=20261009a"></script>
+<script src="editor.js?v=20261009a"></script>
+<script src="book.js?v=20261009a"></script>
+<script src="reader.js?v=20261009a"></script>
 <!-- 老的那套桌面版界面（发布 / 一致性 / 指标这些电脑上才用的功能都在里面） -->
 <a class="pc-link" href="/pc/" title="切到桌面版界面">桌面版</a>
 
