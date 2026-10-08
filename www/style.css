@@ -198,6 +198,12 @@ html:not(.light) {
 .footnote {
   margin: 14px 2px 4px; color: var(--muted); font-size: 12.5px; line-height: 1.6;
 }
+/* 设置页顶部提示条：一行说清当前默认档位（别做成大横幅，别抢戏） */
+.tip-bar {
+  margin: 0 2px 14px; padding: 10px 12px; border-radius: 12px;
+  background: var(--accent-soft); color: var(--text);
+  font-size: 12.5px; line-height: 1.55;
+}
 .divider { height: 1px; background: var(--line); margin: 14px 0; }
 code, pre {
   font-family: var(--mono); font-size: 12.5px;
