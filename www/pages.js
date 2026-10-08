@@ -532,7 +532,7 @@
      省得「勾了三个到底谁写哪一章」还要跑去电脑上翻。 */
   const MODELS = ['doubao', 'mimo', 'deepseek'];
   const MODEL_LABEL = { doubao: '豆包', mimo: 'MiMo', deepseek: 'DeepSeek' };
-  /* 三个模型的品牌图标（在 api.js ICONS 里定义） */
+  /* 多个模型的品牌图标（在 api.js ICONS 里定义） */
   const MODEL_ICON = { doubao: 'm_doubao', mimo: 'm_mimo', deepseek: 'm_deepseek' };
   const ROLE_LABEL = { plan: '策划', write: '写作', review: '审查', polish: '润色' };
   const ROLE_ORDER = ['plan', 'write', 'review', 'polish'];
@@ -553,7 +553,7 @@
   const CONC_ITEMS = [
     { key: '1', label: '一个个来', sub: '最稳，最慢' },
     { key: '2', label: '最多 2 个同时' },
-    { key: '3', label: '最多 3 个同时（推荐）', sub: '三模型评分快约 3 倍' },
+    { key: '3', label: '最多 3 个同时（推荐）', sub: '多模型评分快约 3 倍' },
     { key: '0', label: '不限制', sub: '最快，容易被限流' },
   ];
   const RETRY_ITEMS = [
@@ -1204,6 +1204,10 @@
     box.appendChild(kpis);
     box.appendChild(h('div.footnote', { text: '1 墨币 = 0.01 元 · 余额 ≈ ' + bYuan(st.balance, per)
       + ' 元 · 失败任务自动全额退款' }));
+    if (sub && sub.shared_by) {
+      box.appendChild(h('div.footnote', { text: '团队额度：由 ' + sub.shared_by + ' 开通，共 '
+        + (sub.members || []).length + ' 人合用 ' + (sub.chapters || 0) + ' 章/月。' }));
+    }
     return box;
   }
 
