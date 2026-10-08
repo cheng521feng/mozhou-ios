@@ -68,6 +68,13 @@ window.MZ = (function () {
   let CLOUD = '';
   try { CLOUD = localStorage.getItem(CLOUD_KEY) || ''; } catch (e) { CLOUD = ''; }
   if (CLOUD && CLOUDS.indexOf(CLOUD) < 0) CLOUD = '';   /* 入口名单变了就重探 */
+  /* 页面本身就是从某个入口加载出来的（App 壳里的入口探测是严格验过的：
+     只认我们自己的 JSON，云厂商的「未备案」拦截页不算），那就直接用它，
+     不要先拿 localStorage 里那个可能已经失效的旧入口发一轮请求、全失败了才回头重探。 */
+  try {
+    const _org = location.origin;
+    if (_org && _org !== 'null' && CLOUDS.indexOf(_org) >= 0) CLOUD = _org;
+  } catch (e) { /* 忽略 */ }
 
   /* 探测一个入口：能拿到网关的 JSON（哪怕只是「未登录」的 401）就算通；
      云厂商的拦截页是 text/html，不算通。 */
