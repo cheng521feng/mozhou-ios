@@ -225,6 +225,12 @@
         const st = hero.stats || {};
         const settings = hero.settings || {};
         const providers = hero.providers || {};
+        /* 顶部提示：默认就是快速模式（便宜快）。只在真开着的时候显示，免得关了还说「当前快速模式」。 */
+        if (settings.fast_mode !== '0') {
+          out.appendChild(h('div.tip-bar', {
+            text: '当前快速模式（便宜快）。想精修某章，点那章的「精细重写」。',
+          }));
+        }
 
         /* ---- 我的资料（头像 / 用户名 / 性别 / 年龄） ---- */
         out.appendChild(profileCard());
@@ -977,7 +983,7 @@
       'auto_retry', function (v) { saveSetting('auto_retry', v, '重试次数已更新'); }, 'refresh'));
     wl.appendChild(pickRow('并发写书数', '无人值守续写时同时写几本', (settings.gen_workers || '2') + ' 本', BOOK_WORKER_ITEMS,
       'gen_workers', function (v) { saveSetting('gen_workers', v, '并发写书数已更新'); }, 'layers'));
-    wl.appendChild(swRow('快速模式', '跳过模型深度去AI化，只做规则清洗，快很多',
+    wl.appendChild(swRow('快速模式', '跳过 审查 / 润色 / 深度去AI化 三道叠改，便宜快；想精修某章点那章的「重写本章」',
       settings.fast_mode === '1', flagSetting('fast_mode', '快速模式'), 'fire'));
     wl.appendChild(swRow('字数不达标自动补写', '推荐开着，免得每章都差几百字',
       settings.quality_gate === '1', flagSetting('quality_gate', '自动补写'), 'plus'));
