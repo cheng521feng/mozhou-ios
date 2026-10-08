@@ -118,15 +118,30 @@ window.MZ = (function () {
     /* skipBase：调用方已经验过、确定不通的那个入口，不用再探一遍 */
     if (skipBase) list = list.filter(function (b) { return b !== skipBase; });
     if (!list.length) return Promise.resolve(CLOUD || '');
-    probing = Promise.all(list.map(function (b) { return probeEntry(b); })).then(function (rs) {
-      probing = null;
-      let best = '', lat = -1;
-      for (let i = 0; i < list.length; i++) {
-        if (rs[i] >= 0 && (lat < 0 || rs[i] < lat)) { best = list[i]; lat = rs[i]; }
-      }
-      if (!best) best = CLOUD || list[0];
-      return useCloud(best);   /* 记住这个入口，之后的请求直接用它，不再探测 */
-    }).catch(function () { probing = null; return useCloud(CLOUD || list[0]); });
+    probing = new Promise(function (resolve) {
+      let best = '', lat = -1, pending = list.length, grace = null, done = false;
+      const finish = function () {
+        if (done) return;
+        done = true;
+        if (grace) clearTimeout(grace);
+        probing = null;
+        resolve(useCloud(best || CLOUD || list[0]));
+      };
+      if (!pending) { finish(); return; }
+      list.forEach(function (b) {
+        probeEntry(b).then(function (ms) {
+          if (done) return;
+          pending--;
+          if (ms >= 0 && (lat < 0 || ms < lat)) { best = b; lat = ms; }
+          /* 已经有能用的入口了：再给别的入口 600ms 抢一下「更快」，然后就用最好的那个。
+             不这么写的话，一个连不通的入口（黑洞，要等满探测超时）会把开 App 的第一条
+             请求整整拖 4 秒。 */
+          if (best && !grace) grace = setTimeout(finish, 600);
+          if (pending === 0) finish();
+        });
+      });
+    });
+
     return probing;
   }
   function useCloud(base) {
