@@ -64,9 +64,20 @@ window.MZ = (function () {
   const CLOUDS_ALL = (location.protocol === 'https:')
     ? CLOUDS_RAW.filter(function (b) { return b.indexOf('https:') === 0; })
     : CLOUDS_RAW;
-  const CLOUDS = (window.MZ_CLOUD !== undefined && window.MZ_CLOUD !== null)
-    ? (String(window.MZ_CLOUD) ? [String(window.MZ_CLOUD)] : [])
-    : CLOUDS_ALL;
+  /* MZ_CLOUD 的语义（别改）：
+       未定义 → 走上面那几条云端入口（装机版 App 默认就是这个）
+       非空串 → 只用这一个入口（本机调试用）
+       空串   → 「页面由本机墨舟服务发出，接口走同源相对路径」，只有桌面端是这种情况
+     空串只在页面本身就是 http(s) 的时候才作数。iOS 的 ipa / iPad 那份壳把页面内嵌在
+     capacitor://localhost 里，壳里根本没有 /api/* 这些接口：这时候还认空串，登录就会
+     打到壳上、拿到 404，界面只会显示「登录失败，请检查用户名和密码」。
+     2026-10-08 就是踩了这个坑 —— 入口页里那行 MZ_CLOUD='' 被同步进了 ipa 的 www，
+     iPhone 上谁都登不上。所以这里按「页面协议」兜底，不靠入口页那行写对。 */
+  const _webPage = (location.protocol === 'http:' || location.protocol === 'https:');
+  const _mzCloud = (window.MZ_CLOUD === undefined || window.MZ_CLOUD === null)
+    ? null : String(window.MZ_CLOUD);
+  const CLOUDS = _mzCloud ? [_mzCloud]
+    : ((_mzCloud === '' && _webPage) ? [] : CLOUDS_ALL);
   const CLOUD_KEY = 'mz_cloud';
   let PINNED = false;          /* 入口就是「页面自己那个」：不用再验，直接信 */
   let CLOUD = '';
