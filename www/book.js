@@ -855,6 +855,7 @@ window.MZBook = (function () {
 
   return {
     open: open, editMeta: editMeta, aiOutline: aiOutline, remove: remove,
+    askAutoWrite: unattended,          // 写作台的「自动写到第 N 章」复用这一张表
     moreSheet: moreSheet, field: textField, toggle: toggleRow,
     coverSheet: coverSheet, saveCover: saveCover, genCover: genCover,
     picker: genrePicker, genres: loadGenres,
