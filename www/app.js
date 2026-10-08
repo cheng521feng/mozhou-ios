@@ -18,7 +18,7 @@
    就正常了，所以症状是「时好时坏，重开就好」。
 
    这里做两件事：
-   1) 用探针元素把当前真正生效的 env() 读出来，主动写回 --safe-t / --safe-b，
+   1) 用探针元素把当前真正生效的 env() 读出来，主动写回 --safe-t / --safe-b / --safe-l / --safe-r，
       并在首帧 / load / resize / 转屏 / visualViewport 变化时重读。系统只要后来
       报对了，界面自己就跟上，不用重开 App。
    2) 给「确定带 home 指示条」的机型钉一个下限（iPhone X 及以后竖屏逻辑高度 812
@@ -37,12 +37,15 @@
     probe.style.cssText =
       'position:fixed;left:-2px;bottom:-2px;width:1px;height:1px;visibility:hidden;' +
       'pointer-events:none;padding-top:env(safe-area-inset-top,0px);' +
-      'padding-bottom:env(safe-area-inset-bottom,0px)';
+      'padding-bottom:env(safe-area-inset-bottom,0px);' +
+      'padding-left:env(safe-area-inset-left,0px);' +
+      'padding-right:env(safe-area-inset-right,0px)';
 
     function readInset() {
       if (!probe.parentNode) D.appendChild(probe);
       const cs = getComputedStyle(probe);
-      return { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0 };
+      return { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0,
+               l: parseFloat(cs.paddingLeft) || 0, r: parseFloat(cs.paddingRight) || 0 };
     }
     /* 屏的物理尺寸（CSS 逻辑像素）。screen 都没有的环境按 0 处理，一律不钉下限。 */
     function screenSize() {
@@ -57,26 +60,34 @@
       const ih = Math.max(window.innerWidth || 0, window.innerHeight || 0);
       return !!s.h && ih >= s.h - 24;
     }
-    /* 带 home 指示条的机型：iPhone X 起最矮也有 812（竖屏逻辑高度）；
+    /* 带 home 指示条 / 灵动岛的机型：回落值分上下两块给。
+       iPhone X 起最矮也有 812（竖屏逻辑高度）；屏高 ≥ 852 的是灵动岛那几代
+       （14 Pro / 15 / 16 / 17 系列，含 Duo），状态栏比刘海再高一截（59 而不是 47），
+       回落值给矮了的话导航栏会钻到岛底下。
        iPadOS 13 起 UA 报 Macintosh，用「多点触控 + 屏高」认出来（真 Mac 恒为 0）。 */
-    function btn() {
+    function btnInsets() {
       const s = screenSize();
-      if (s.h < 812 || s.w < 375) return 0;
+      if (s.h < 812 || s.w < 375) return { t: 0, b: 0 };
       const portrait = (window.innerHeight || 0) >= (window.innerWidth || 0);
       const ua = navigator.userAgent || '';
-      if (/iPhone|iPod/i.test(ua)) return portrait ? 34 : 21;
-      if (/iPad/i.test(ua)) return 20;
-      if ((navigator.maxTouchPoints || 0) > 1 && /Macintosh/i.test(ua)) return 20;
-      return 0;
+      if (/iPad/i.test(ua) || ((navigator.maxTouchPoints || 0) > 1 && /Macintosh/i.test(ua))) {
+        return { t: 24, b: 20 };
+      }
+      if (!/iPhone|iPod/i.test(ua)) return { t: 0, b: 0 };
+      return { t: s.h >= 852 ? 59 : 47, b: portrait ? 34 : 21 };
     }
     let raf = 0;
     function apply() {
       raf = 0;
       const v = readInset();
-      const fb = fullscreen() ? btn() : 0;
+      const fb = fullscreen() ? btnInsets() : { t: 0, b: 0 };
       const portrait = (window.innerHeight || 0) >= (window.innerWidth || 0);
-      D.style.setProperty('--safe-t', Math.max(v.t, (fb && portrait) ? 44 : 0) + 'px');
-      D.style.setProperty('--safe-b', Math.max(v.b, fb) + 'px');
+      D.style.setProperty('--safe-t', Math.max(v.t, portrait ? fb.t : 0) + 'px');
+      D.style.setProperty('--safe-b', Math.max(v.b, fb.b) + 'px');
+      /* 横屏时灵动岛 / home 指示条是躺在左右两侧的（iPhone 15/16/17 系列竖屏也可能有一点点），
+         左右安全区照 env() 原样用：真机一向报得准，报 0 就按 0（跟以前一样，不会多出一块空白）。 */
+      D.style.setProperty('--safe-l', Math.round(v.l) + 'px');
+      D.style.setProperty('--safe-r', Math.round(v.r) + 'px');
     }
     function sync() {
       if (raf) return;
@@ -105,13 +116,13 @@ window.MZApp = (function () {
           fmtNum, fmtWords, fmtDur, fmtDate, timeAgo, debounce, sleep, emptyBox, loadingBox, errBox,
           attachPull, icon, brand, ring, bar, chip, countNode, countUp, skeleton, reduceMotion, hold } = MZ;
 
-  /* 四个标签：书架就是首页（跟阅读器一样的思路 —— 打开就是书）
+  /* 四个标签：写作是首页 —— 打开 App 就是为了写，书架退到第一位之外。
      老代码里 switchTab('overview') 的地方统一落到书架，不报错。 */
   const TABS = ['books', 'write', 'jobs', 'me'];
   const LEGACY_TAB = { overview: 'books', shelf: 'books', home: 'books', books: 'books', more: 'me', mine: 'me' };
   const TAB_LABEL = { books: '书架', write: '写作', jobs: '任务', me: '我的' };
   const state = {
-    tab: 'books',
+    tab: 'write',
     liveJobs: [],
     stack: [],
     hero: null,
@@ -708,93 +719,42 @@ window.MZApp = (function () {
     return p.today_made === undefined ? (n.today_made || 0) : p.today_made;
   }
 
-  /* ============================== 总览 ============================== */
-  function planCard(todos) {
-    if (!todos.length) {
-      return h('div.done-card', null,
-        h('div.em-ico', null, icon('check', { size: 22, w: 2.4 })),
-        h('div', null,
-          h('div.dc-t', { text: '今日全部达标' }),
-          h('div.dc-s', { text: state.novels.length
-            ? '共 ' + state.novels.length + ' 本作品，今天的更新量都写完了'
-            : '还没有作品，去「书架」建一本' })));
-    }
-    const totalNeed = todos.reduce(function (s, n) { return s + planNeed(n); }, 0);
-    const box = h('div.card');
-    box.appendChild(h('div.card-head', null, h('h3', { text: '今日待补' }), h('span.sp', { text: '还差 ' + totalNeed + ' 章' })));
-    todos.forEach(function (n) {
-      const need = planNeed(n), made = planMade(n);
-      const daily = (n.plan && n.plan.daily) || n.daily_count || 0;
-      const row = h('div.plan-row');
-      row.appendChild(h('div.plan-main', null,
-        h('div.plan-title', { text: '《' + (n.title || '未命名') + '》' }),
-        h('div.plan-sub', { text: '今日 ' + made + '/' + daily + ' 章 · 全书 ' + (n.chapter_count || 0) + ' 章' }),
-        h('div.plan-bar', null, barOf(daily ? (made / daily) * 100 : 0))));
-      row.appendChild(h('span.plan-need', { text: '还差 ' + need + ' 章' }));
-      row.addEventListener('click', function () { haptic('light'); askUpdate(n); });
-      box.appendChild(row);
-    });
-    box.appendChild(h('div.card-foot', { text: '点一本书直接补更（续写）；这里只显示今天还没达标的作品。' }));
-    return box;
+  /* ---------- 这一章大概要花多少墨币 ----------
+     「写下一章」那个按钮上要把价钱写清楚。价格一律问后端（/api/billing/pricing），
+     界面不写死—— 写死了改价那天就会骗人。
+     算法和后端 billing.quote() 完全一致：基准价 + 超出的百字数 × 单价，
+     再乘模型系数（同时选了几个模型时取系数最大的，跟 billing.coefs_for 一个口径）。 */
+  let _pricingCache = null;
+  async function loadPricing() {
+    if (_pricingCache) return _pricingCache;
+    try {
+      const r = await api.get('/api/billing/pricing');
+      _pricingCache = (r && r.pricing) || {};
+    } catch (e) { _pricingCache = {}; }
+    return _pricingCache;
   }
-  function usageCard() {
-    const u = (state.hero && state.hero.usage) || {};
-    const days = (u.by_day || []).slice(-14);
-    if (!days.length) return null;
-    const max = days.reduce(function (m, d) { return Math.max(m, d.chars || 0); }, 0) || 1;
-    const box = h('div.card');
-    box.appendChild(h('div.card-head', null,
-      h('h3', { text: '近两周产出' }),
-      h('span.sp', { text: '今天 ' + fmtNum(u.today_chars || 0) + ' 字' })));
-    const bars = h('div.spark-bars');
-    days.forEach(function (d, i) {
-      const b = h('div.sb' + (i === days.length - 1 ? '.on' : ''), { style: { height: Math.max(4, ((d.chars || 0) / max) * 100) + '%' } });
-      b.title = (d.day || '') + ' · ' + fmtNum(d.chars || 0) + ' 字';
-      bars.appendChild(b);
-    });
-    box.appendChild(bars);
-    box.appendChild(h('div.live-nums.mt12', null,
-      h('span', { text: '累计调用 ' + fmtNum(u.total_calls || 0) + ' 次' }),
-      h('span', { text: '生成 ' + fmtNum(u.completion_chars || 0) + ' 字' }),
-      h('span', { text: '今天 ' + fmtNum(u.today_calls || 0) + ' 次' })));
-    return box;
+  /* 返回墨币数（数字）；拿不到价格返 0，调用方就别显示价钱 */
+  async function chapterPrice(words, action) {
+    const pr = await loadPricing();
+    const row = (pr.actions || []).filter(function (x) { return x.action === (action || 'continue'); })[0];
+    if (!row) return 0;
+    const base = Number(pr.base_words) || 2000;
+    const per = Number(pr.extra_coin_per_100) || 0;
+    const w = Number(words) || 0;
+    const extra = Math.ceil(Math.max(0, w - base) / 100) * per;
+    const st = (state.hero && state.hero.settings) || {};
+    const sel = String(st.selected_models || 'deepseek').split(/[,\s;、，]+/).filter(Boolean);
+    const coefs = pr.models || {};
+    let coef = 1;
+    sel.forEach(function (m) { const c = Number(coefs[m]); if (c && c > coef) coef = c; });
+    return Math.round((Number(row.coins) + extra) * coef * 10) / 10;
   }
-  screens.overview = function () {
-    return {
-      title: '总览',
-      action: { label: '刷新', onTap: function () { refreshAll(true); } },
-      async mount(body) {
-        const d = await ensureHero();
-        const st = d.stats || {};
-        const live = state.live || d.live || {};
-        const out = h('div.pad');
-        out.appendChild(kpi([
-          { label: '今日更新', value: st.today_chapters || 0, unit: '/ ' + (st.today_target || 0) + ' 章',
-            tone: (st.today_target && st.today_chapters >= st.today_target) ? 'accent' : '' },
-          { label: '累计字数', value: Number(st.chars) || 0, unit: '' },
-          { label: '作品', value: st.novels || 0, unit: '本' },
-          { label: '待改弱章', value: st.weak_count || 0, unit: '章', tone: st.weak_count ? 'amber' : '' },
-        ]));
-        if (liveBusy(live)) {
-          const c = liveHero(live, { maxEvents: 4 });
-          c.classList.add('mt12');
-          out.appendChild(c);
-        }
-        const todos = state.novels.filter(function (n) { return n.enabled !== false && planNeed(n) > 0; })
-          .sort(function (a, b) { return planNeed(b) - planNeed(a); });
-        out.appendChild(h('div.mt12', null, planCard(todos)));
-        const u = usageCard();
-        if (u) out.appendChild(h('div.mt12', null, u));
-        out.appendChild(h('div.section-title', { text: '快捷操作' }));
-        const row = h('div.btn-row', { style: { marginTop: '0' } });
-        row.appendChild(MZApp._btn('跑今日自动更新', 'primary', function () { runDaily(); }));
-        if (live.running) row.appendChild(MZApp._btn('停止全部', 'danger', function () { stopAll(); }));
-        out.appendChild(row);
-        out.appendChild(h('div.footnote', { text: '「跑今日自动更新」会按每本书的每日章数补更，耗时较长，发起后放着不管就行。' }));
-        return out;
-      },
-    };
-  };
+
+  /* ============================== 总览（已废） ==============================
+     以前这里有一个独立的「总览」页（KPI + 今日待补 + 近两周产出）。
+     现在底部导航只有四个标签，总览不再占一个位置：
+     共X本 / X章 / X字 + 今日 X/Y 章 这几个数字都已经并进书架页顶部的统计行（screens.books + todayStrip），
+     所以总览页那几个渲染函数（计划卡 / 用量卡等）整块删掉，不留死代码。 */
 
   /* ============================== 书架 ============================== */
   /* 「整理（多选）」和「搜索 / 排序 / 筛选」的状态都放模块级：
@@ -2359,11 +2319,13 @@ window.MZApp = (function () {
     catch (e) { sysLight = false; }
     return sysLight;
   }
-  /* 读用户的选择；system/light/dark；旧版本没存过就当跟随系统 */
+  /* 读用户的选择；system/light/dark。
+     没存过偏好时默认 'dark' —— 品牌底色是深墨黑，冷启动第一眼不该是纸白。
+     想跟系统走的用户，自己到「我的 → 外观」里选「跟随系统」。 */
   function themePref() {
     let t = null;
     try { t = localStorage.getItem(THEME_KEY); } catch (e) { /* 忽略 */ }
-    return THEMES.indexOf(t) >= 0 ? t : 'system';
+    return THEMES.indexOf(t) >= 0 ? t : 'dark';
   }
   /* 眼下到底是浅色还是深色（把跟随系统算进去） */
   function isLightTheme() {
@@ -2388,7 +2350,7 @@ window.MZApp = (function () {
     if (themePref() === 'system') paintTheme();
   }
   function applyTheme(t) {
-    const pref = THEMES.indexOf(t) >= 0 ? t : 'system';
+    const pref = THEMES.indexOf(t) >= 0 ? t : 'dark';
     try { localStorage.setItem(THEME_KEY, pref); } catch (e) { /* 忽略 */ }
     return paintTheme();
   }
@@ -2573,7 +2535,7 @@ window.MZApp = (function () {
 
   function enterApp(wantWelcome) {
     showApp();
-    go('overview');
+    go('write');
     wireApp();
 
     /* 欢迎页要名字和头像，所以先把资料拉回来再画 */
@@ -2605,6 +2567,7 @@ window.MZApp = (function () {
     pending: pending, pendingDone: pendingDone, pendingDrop: pendingDrop, paintOps: paintOps, opsAll: opsAll,
     hitFixInstruction: hitFixInstruction,
     chapTitle: chapTitle, setPinned: setPinned,
+    chapterPrice: chapterPrice, loadPricing: loadPricing,
     _btn: function (label, tone, onTap, size) {
       const b = h('button.btn' + (tone ? '.' + tone : '') + (size === 'sm' ? '.sm' : ''), { type: 'button', text: label });
       b.addEventListener('click', function () { haptic('light'); onTap(); });
