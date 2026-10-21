@@ -160,11 +160,19 @@
   .books-head { align-items: flex-end; }
   .books-head .bh-stat { font-size: 13px; }
   /* 搜索 / 排序 / 筛选：挪进同一条工具行 */
-  .bk-tools { flex-direction: row; align-items: center; gap: 14px; padding: 12px 0 2px; }
-  .bk-search { flex: 1 1 300px; max-width: 380px; height: 44px; }
-  .bk-sort { flex: 0 0 auto; }
-  .bk-filter { flex: 1 1 auto; }
-  .bk-filter .row, .bk-sort .row { flex-wrap: nowrap; }
+  .bk-tools {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "search sort" "filter filter";
+    align-items: center; gap: 10px 14px; padding: 12px 0 4px;
+  }
+  .bk-search { grid-area: search; width: 100%; max-width: none; height: 44px; }
+  .bk-sort { grid-area: sort; justify-self: end; max-width: 100%; }
+  .bk-filter {
+    grid-area: filter; display: flex; flex-wrap: wrap; gap: 8px;
+    min-width: 0; overflow: visible; padding: 0;
+  }
+  .bk-filter .chip { height: 38px; padding: 0 15px; font-size: 13.5px; }
+  .books-head .bh-btn { height: 40px; padding: 0 16px; font-size: 14px; }
 
   /* 封面墙：按宽度自动排，一列 176 起（约 176x264 一张，手指点得准） */
   .books-grid {
@@ -176,6 +184,8 @@
   /* 长按封面出「⋯」比较费劲，平板上让「⋯」常显一点（半透明，不抢眼） */
   .book .bk-dot { opacity: .55; }
   .book .bk-dot:hover, .book .bk-dot:focus { opacity: 1; }
+  .book .bk-dot { width: 40px; height: 40px; top: 8px; right: 8px; }
+  .book .bk-dot svg { width: 18px; height: 18px; }
 
   /* ============================== 3. 选书条（写作页顶部） ============================== */
   /* 手机是横滑一条；平板上横向滚动条是浪费：改成按宽度自动排的网格，一眼看全 */
@@ -212,6 +222,8 @@
 
   /* ============================== 5. 列表 / 按钮：手指尺寸 ============================== */
   .list .li { min-height: 56px; padding-top: 12px; padding-bottom: 12px; }
+  .bk-more { width: 40px; height: 40px; }
+  .bk-more svg { width: 18px; height: 18px; }
   .li-title { font-size: 15.5px; }
   .li-sub { font-size: 12.5px; }
   .btn { height: 46px; font-size: 15px; border-radius: 14px; }
@@ -234,11 +246,28 @@
     width: 100%; max-width: 880px; margin-left: auto; margin-right: auto;
   }
 
-  /* ============================== 7. 任务条 / 吐司 / 登录 ============================== */
-  /* 任务条挂到右下角（写作台里 --dock-bottom 会把它抬到工具条上面） */
-  .opsdock {
-    left: auto; right: 26px; bottom: var(--dock-bottom, 24px);
-    width: min(460px, calc(100% - var(--rail-w) - 52px));
+  /* ============================== 7. 实时状态 / 吐司 / 登录 ============================== */
+  /* 全局任务条（#opsDock）已下线：实时状态画在书架页顶部（.books-live），跟正文一起滚。
+     平板上正文栏宽，光把紧凑卡摞在上面很浪费 —— 有任务在跑时把书架首行改成两栏：
+     左边「今日进度 + 补更」，右边「实时状态」，一屏看全。没任务在跑时不改版式
+     （.books-live 那时是 [hidden]，:not([hidden]) 让这条整段不生效）。
+     2026-10-13：卡本身收成 .lv 紧凑版，这一栏也跟着从 470px 收到 400px，两栏更平衡。 */
+  .main > div > div:has(> .books-grid):has(> .books-live:not([hidden])) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 400px);
+    column-gap: 24px; align-items: start;
+  }
+  .main > div > div:has(> .books-grid):has(> .books-live:not([hidden])) > .books-live {
+    grid-column: 2; grid-row: 1; margin-top: 4px;
+  }
+  .main > div > div:has(> .books-grid):has(> .books-live:not([hidden])) > .today-strip {
+    grid-column: 1; grid-row: 1;
+  }
+  .main > div > div:has(> .books-grid):has(> .books-live:not([hidden])) > .books-head,
+  .main > div > div:has(> .books-grid):has(> .books-live:not([hidden])) > .bk-tools,
+  .main > div > div:has(> .books-grid):has(> .books-live:not([hidden])) > .books-grid,
+  .main > div > div:has(> .books-grid):has(> .books-live:not([hidden])) > .footnote {
+    grid-column: 1 / -1;
   }
   /* 吐司居中在正文那一栏里，别压到左栏上 */
   .toasts { left: var(--rail-w); right: 0; bottom: 26px; }
@@ -293,15 +322,22 @@
   .pad:has(> .pick-strip) > *:not(.pick-strip):not(.card) { grid-column: 2; }
   .pad:has(> .pick-strip) > .section-title { margin-top: 0; }
 
-  /* ---------- 作品页：左「书卡 + 全部操作」，右「前情摘要 + 章节」 ---------- */
+  /* ---------- 作品页：左「书卡 + 动作键」，右「页签 + 内容」 ---------- */
   .pad:has(> .bk-head) {
     display: grid; grid-template-columns: 368px minmax(0, 1fr);
     gap: 22px 32px; align-items: start;
   }
-  .pad:has(> .bk-head) > *:nth-child(1) { grid-column: 1; grid-row: 1; }
-  .pad:has(> .bk-head) > *:nth-child(2) { grid-column: 1; grid-row: 2; }
-  .pad:has(> .bk-head) > *:nth-child(3) { grid-column: 2; grid-row: 1; }
-  .pad:has(> .bk-head) > *:nth-child(4) { grid-column: 2; grid-row: 2; }
+  /* 按类放位置（别用 nth-child：页面里再插一块就全错位）。
+     左栏：书卡 + 它下面那三个动作键；右栏：页签 + 页签管着的内容。 */
+  .pad:has(> .bk-head) > .bk-head   { grid-column: 1; grid-row: 1; }
+  .pad:has(> .bk-head) > .bk-actbar { grid-column: 1; grid-row: 2; }
+  .pad:has(> .bk-head) > .bk-body   { grid-column: 2; grid-row: 1 / span 2; min-width: 0; }
+  .bk-body > .bk-tabs { margin-top: 0; }
+  /* 左栏那三个键不再贴屏底：左栏本来就不长，改成卡片下面竖着一条。
+     手机那套是 sticky 贴底 + 左右 -16px 出血，塞进 368px 的栏里会上撞。 */
+  .bk-actbar { position: static; margin: 0; padding: 0; background: none; border-top: 0; }
+  .bk-actbar .btn-row { flex-direction: column; }
+  .bk-actbar .btn { width: 100%; }
   .bk-head {
     flex-direction: column; gap: 14px; margin-top: 0;
     background: var(--panel); border-radius: var(--r-card);
@@ -328,4 +364,241 @@
   .pad:has(.list.models) > .section-title,
   .pad:has(.list.models) > .footnote { grid-column: 1 / -1; }
   .pad:has(.list.models) > .section-title { margin: 6px 0 0; }
+}
+
+
+/* ==========================================================================
+   10. 作品页的动作条：700–1079 的平板没有底部标签栏
+   手机那套 sticky + bottom: calc(--tab-h + 8px) 是「压在标签栏上沿」算出来的，
+   平板底下没有那条栏，动作条就吊在半空（竖屏 834 实测下面空 317px）。
+   这里让正文栏撑满、动作条沉到栏底，左右出血改成跟页面一致的 26px。
+
+   两个坑：
+     a) .pad 上写着 margin-left/right: auto（宽屏居中用的）。块状布局里看不出问题，
+        父级一旦变成 flex，auto 外边距会吃掉横向剩余空间 —— 子项缩成内容宽并居中，
+        整页跟着缩进、右移。所以这一档要把 auto 收掉。
+     b) 只给「作品页」套 flex（用 :has 卡住），别的页面照旧走块状，免得连带出错。
+   ≥1080 是两栏版式，动作条在左栏里是静态的（见上面第 9 节），不受这里影响。
+   ========================================================================== */
+@media (min-width: 700px) and (max-width: 1079px) and (min-height: 500px) {
+  .main:has(.bk-actbar) { display: flex; flex-direction: column; padding-bottom: 0; }
+  .main:has(.bk-actbar) > div {
+    flex: 1 1 auto; display: flex; flex-direction: column;
+    margin-left: 0; margin-right: 0;
+  }
+  .main:has(.bk-actbar) > div > .pad:has(> .bk-actbar) {
+    flex: 1 1 auto; display: flex; flex-direction: column;
+    margin-left: 0; margin-right: 0;
+  }
+  .pad:has(> .bk-actbar) > .bk-actbar {
+    position: sticky; bottom: 0;
+    margin: 18px -26px 0; margin-top: auto;
+    padding: 10px 26px 12px;
+  }
+}
+
+
+/* ==========================================================================
+   11. 超宽短横屏：HUAWEI Pura 90 Pro Max (SCA-AL00) / 2880 x 1308
+
+   这台机器的逻辑视口大约是 960 x 436 CSS px，比例超过 2:1。它够宽，却不适合
+   手机那套「大标题 + 底部标签栏」：屏幕只有四百多高，顶栏和底栏一占，正文只剩
+   不到三百 px。这里把它当作「横向工作台」：左侧 84px 竖栏、顶部只留一行标题，
+   书架/写作改用高密度网格，弹窗限制在当前可视高度内。
+
+   只命中 min-width 940、max-height 560、宽高比 >= 1.5 的横屏设备。普通手机
+   横屏（约 932 x 430）不会进入，11 寸平板（1280 x 800）也不会进入。
+   ========================================================================== */
+@media (min-width: 940px) and (max-height: 560px) and (min-aspect-ratio: 3/2) {
+  html, body { overflow: hidden; }
+
+  .app {
+    --rail-w: 84px;
+    --pad-w: 1600px;
+    display: grid;
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "rail nav" "rail main";
+    height: 100vh; height: 100dvh;
+    padding-bottom: 0;
+  }
+  body.ed-immersive .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "nav" "main";
+  }
+
+  /* ---------- 左栏：紧凑图标导航 ---------- */
+  .tabbar {
+    grid-area: rail;
+    position: relative; z-index: auto; left: auto; right: auto; bottom: auto;
+    height: auto;
+    padding: max(calc(10px + var(--safe-t)), 22px)
+             calc(6px + var(--safe-r, 0px))
+             max(10px, var(--safe-b))
+             calc(6px + var(--safe-l, 0px));
+    display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+    gap: 3px;
+    background: var(--tab-bg);
+    -webkit-backdrop-filter: saturate(160%) blur(16px);
+    backdrop-filter: saturate(160%) blur(16px);
+    border-top: 0; border-right: 1px solid var(--line-soft);
+  }
+  .sb-brand { display: flex; flex-direction: column; align-items: center; padding: 0 2px 9px; }
+  .sb-brand .sb-mark { width: 28px; height: 28px; border-radius: 9px; }
+  .sb-brand b { display: none; }
+  .tab {
+    position: relative;
+    flex: 0 0 52px; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; height: 52px; padding: 0; border-radius: 12px;
+    color: var(--dim); font-size: 10.5px;
+  }
+  .tab .tb-ico { height: 21px; }
+  .tab .tb-ico svg { width: 21px; height: 21px; }
+  .tab b { font-size: 10.5px; font-weight: 560; }
+  .tab.on { background: var(--accent-soft); color: var(--accent); }
+  .tab.on b { font-weight: 680; }
+  .tab .tbadge { position: absolute; top: 4px; right: 10px; margin: 0; }
+  .pc-link { display: none !important; }
+
+  /* ---------- 顶栏：一行标题，把高度留给正文 ---------- */
+  .navbar {
+    grid-area: nav; position: sticky; top: 0; z-index: 40;
+    padding-top: max(var(--safe-t), 20px);
+  }
+  .navbar.no-large .nb-row { border-bottom: 0; }
+  .nb-row {
+    height: 48px; padding: 0 20px;
+    max-width: none; margin-left: 0; margin-right: 0;
+  }
+  .nb-large { display: none !important; }
+  .nb-title {
+    position: static; left: auto; right: auto;
+    flex: 1 1 auto; text-align: left; opacity: 1;
+    font-size: 17px; line-height: 1.2;
+  }
+  .nb-back { width: 36px; height: 36px; margin-left: -6px; border-radius: 11px; }
+  .nb-action { height: 34px; min-height: 34px; padding: 0 13px; border-radius: 10px; font-size: 13.5px; }
+
+  /* ---------- 正文：左右 20px，纵向尽量少留白 ---------- */
+  .main {
+    grid-area: main; overflow-y: auto; overflow-x: hidden;
+    padding-bottom: 12px;
+  }
+  .pad {
+    max-width: none; margin-left: 0; margin-right: 0;
+    padding: 2px 20px 0;
+  }
+  .main > div > div {
+    max-width: none; margin-left: 0; margin-right: 0;
+    padding-left: 20px; padding-right: 20px;
+  }
+  .main > div > div > .today-strip,
+  .main > div > div > .books-head,
+  .main > div > div > .bk-tools,
+  .main > div > div > .books-grid,
+  .main > div > div > .footnote { padding-left: 0; padding-right: 0; }
+  .pad > .footnote, .pad > .section-title { max-width: none; }
+  .section-title { font-size: 13.5px; margin: 10px 0 5px; }
+  .footnote { display: none; }
+
+  /* ---------- 书架：第一屏尽量看到完整书封 ---------- */
+  .today-strip {
+    margin-top: 2px; padding: 8px 12px; border-radius: 13px;
+    min-height: 0;
+  }
+  .today-strip .ts-main { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 1px; }
+  .today-strip .ts-num { font-size: 23px; }
+  .today-strip .ts-sub { margin-top: 0; font-size: 11.5px; }
+  .today-strip .ts-bar { flex-basis: 100%; margin-top: 4px; max-width: 220px; }
+  .books-head { min-height: 30px; margin: 1px 0; padding-top: 0; padding-bottom: 0; align-items: center; }
+  .books-head .bh-stat { font-size: 11.5px; line-height: 1.35; }
+  .bh-btn { min-height: 30px; padding: 0 10px; font-size: 12px; border-radius: 9px; }
+  .bk-tools {
+    flex-direction: row; align-items: center; flex-wrap: nowrap;
+    gap: 7px; padding: 4px 0 2px; overflow: hidden;
+  }
+  .bk-search { flex: 1 1 240px; max-width: 290px; height: 34px; font-size: 13px; }
+  .bk-sort { flex: 0 0 auto; }
+  .bk-sort .seg button { height: 30px; min-height: 30px; padding: 0 8px; font-size: 11.5px; }
+  .bk-filter { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .bk-filter::-webkit-scrollbar { display: none; }
+  .bk-filter .row { flex-wrap: nowrap; }
+  .chip { min-height: 28px; padding: 0 9px; font-size: 11.5px; }
+  .books-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 12px 9px; padding: 6px 0 0;
+  }
+  .book .bk-title { font-size: 12.5px; }
+  .book .bk-cat, .book .bk-meta { font-size: 10.5px; }
+  .book .bk-meta { gap: 3px; }
+  .book .bk-foot { margin-top: 5px; }
+
+  /* ---------- 写作：选书条改成紧凑网格 ---------- */
+  .pad:has(> .pick-strip) {
+    grid-template-columns: 286px minmax(0, 1fr);
+    gap: 12px 18px;
+  }
+  .pick-strip {
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+    gap: 10px 9px; padding: 0 0 10px;
+  }
+  .pick-card .pick-cover, .pick-card .cover { border-radius: 12px; }
+  .pick-hint { display: none; }
+
+  /* ---------- 作品 / 任务 / 我的：宽屏双栏 ---------- */
+  .pad:has(> .bk-head) {
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 12px 18px;
+  }
+  .bk-head { padding: 14px; gap: 10px; }
+  .bk-head .cover { width: 104px; }
+  .bk-head .bk-title { font-size: 18px; }
+  .pad:has(> .jobs-hero) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+    gap: 14px;
+  }
+  .pad:has(.list.models) {
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 12px 16px;
+  }
+  .pad:has(.list.models) > .card { margin-top: 0; }
+  .card { padding: 14px; border-radius: 15px; }
+  .list .li { min-height: 47px; padding-top: 9px; padding-bottom: 9px; }
+  .li-title { font-size: 14px; }
+  .li-sub { font-size: 11.5px; }
+  .btn { height: 39px; font-size: 13.5px; border-radius: 11px; }
+  .inp { height: 38px; font-size: 13.5px; }
+
+  /* ---------- 抽屉 / 弹窗：永远留在当前可视区域内 ---------- */
+  .mask { padding: 12px; }
+  .sheet, .actionsheet {
+    width: min(720px, calc(100vw - var(--rail-w) - 32px));
+    max-height: calc(100dvh - 24px);
+    border-radius: 19px;
+  }
+  .sheet { padding: 0 20px 18px; }
+  .actionsheet { width: min(460px, calc(100vw - var(--rail-w) - 32px)); padding: 8px 12px 13px; }
+  .sheet-head { padding: 12px 0; }
+  .modalbox { max-height: calc(100dvh - 24px); padding: 18px; border-radius: 19px; overflow-y: auto; }
+
+  /* ---------- 写作台 / 阅读器 ---------- */
+  .ed-wrap .ed-nav .nb-row, .ed-wrap .ed-nav .ed-meta,
+  .ed-wrap .ed-body, .ed-wrap .ed-toolbar {
+    width: 100%; max-width: 820px;
+    margin-left: auto; margin-right: auto;
+  }
+  .ed-wrap .ed-nav .nb-row { height: 48px; padding: 0 16px; }
+  .ed-wrap .ed-nav .ed-meta { padding-left: 0; padding-right: 0; }
+  .ed-wrap .ed-find { width: 100%; max-width: 800px; margin-left: auto; margin-right: auto; }
+  .ed-wrap .ed-title { padding-top: calc(var(--safe-t) + 10px); }
+  .rd-page { max-width: 720px; padding: 0 20px; }
+  .rd-top > .rd-row, .rd-bot > .rd-stat, .rd-bot > .rd-track, .rd-bot > .rd-tools {
+    max-width: 800px;
+  }
+
+  /* ---------- 登录 / 吐司 ---------- */
+  .toasts { left: var(--rail-w); right: 0; bottom: 10px; }
+  .toast { max-width: 420px; font-size: 13px; }
+  .login-wrap { padding: 12px; }
+  .login-card { max-width: 410px; max-height: calc(100dvh - 24px); overflow-y: auto; }
 }
