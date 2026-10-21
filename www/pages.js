@@ -219,16 +219,21 @@
     return {
       title: '我的',
       async mount(body) {
-        await A.ensureHero();
+        const heroErr = await A.ensureHeroSoft();
         const out = h('div.pad');
         const hero = A.state.hero || {};
+        if (heroErr && !Object.keys(hero).length) {
+          toast(heroErr.message || '连不上云端', 'bad');
+          out.appendChild(A.cloudDownBox(heroErr, '读不到云端资料'));
+          return out;
+        }
         const st = hero.stats || {};
         const settings = hero.settings || {};
         const providers = hero.providers || {};
-        /* 顶部提示：默认就是快速模式（便宜快）。只在真开着的时候显示，免得关了还说「当前快速模式」。 */
-        if (settings.fast_mode !== '0') {
+        /* 顶部提示：只有真的选了快速线才提示（免得没选还说「当前快速模式」）。 */
+        if (String(settings.persona_level) === 'fast') {
           out.appendChild(h('div.tip-bar', {
-            text: '当前快速模式（便宜快）。想精修某章，点那章的「精细重写」。',
+            text: '当前是快速线（便宜快）。想精修某章，点那章的「重写本章」。',
           }));
         }
 
@@ -260,13 +265,18 @@
         ]));
         out.appendChild(acct);
 
-        /* ---- 正在跑 / 排队 ---- */
-        if (A.liveBusy(A.state.live)) {
-          out.appendChild(h('div.section-title', null, h('span', { text: '实时状态' })));
-          out.appendChild(MZUI.liveHero(A.state.live, { maxEvents: 4 }));
-        }
-
         out.appendChild(writingCard());
+
+        /* ---- 文风学习：导入 TXT / PDF 学出来的写作风格 ---- */
+        const styleList = h('div.list');
+        styleList.appendChild(li({
+          ico: 'spark',
+          title: '文风素材',
+          sub: '导入 TXT / PDF 学一份写作风格，绑到作品上按它续写',
+          arrow: true,
+          onTap: function () { haptic('light'); if (window.MZStyle) window.MZStyle.libSheet(); },
+        }));
+        out.appendChild(card('文风学习', h('span', { text: '续写与去AI化都按它' }), [styleList]));
 
         /* ---- 用量 ---- */
         const u = hero.usage || {};
@@ -292,21 +302,12 @@
         const ql = h('div.list');
         ql.appendChild(li({
           ico: 'target',
-          title: '质检评分模型',
+          title: '辅助质检模型',
           sub: reviewWord(settings),
           arrow: true,
           onTap: reviewModelSheet,
         }));
-        ql.appendChild(pickRow('全书质检范围', '抽样省钱，全书逐章最准',
-          settings.hit_review_scope === 'all' ? '全书逐章' : '抽样（约 24 章）', SCOPE_ITEMS,
-          'hit_review_scope', function (v) { saveSetting('hit_review_scope', v, '质检范围已更新'); }, 'search'));
-        ql.appendChild(swRow('评分不思考', '纯按评分标准判断，快 5~10 倍还省钱',
-          settings.hit_review_fast !== '0', flagSetting('hit_review_fast', '评分不思考'), 'spark'));
-        ql.appendChild(pickRow('同时评几章', '同时评得多容易被限流', (settings.hit_review_workers || '2') + ' 章',
-          REVIEW_WORKER_ITEMS, 'hit_review_workers', function (v) { saveSetting('hit_review_workers', v, '质检并发已更新'); }, 'chart'));
-        ql.appendChild(swRow('局部重写后自动复评', '改完自动再评一次，看到改前改后差多少分',
-          settings.hit_review_auto !== '0', flagSetting('hit_review_auto', '自动复评'), 'check'));
-        out.appendChild(card('质检设置', h('span', { text: '按评分标准逐章打分' }), [ql]));
+        out.appendChild(card('质检设置', h('span', { text: '章末钩子 / 读者视角 / 伏笔台账 / 两模型对比用' }), [ql]));
 
         /* ---- 词表与合规 ---- */
         const cl = h('div.list');
@@ -550,10 +551,14 @@
     { key: 'mimo', label: '不管勾了几个，写作只用 MiMo' },
     { key: 'deepseek', label: '不管勾了几个，写作只用 DeepSeek' },
   ];
+  const PERSONA_ITEMS = [
+    { key: 'full', label: '完整拟人（推荐）', sub: '策划 → 写作 → 审查 → 润色 → 深度去AI化，最像真人（每章多几次调用）' },
+    { key: 'fast', label: '快速', sub: '策划 → 写作 → 规则去AI化，省钱省时，出稿快' },
+  ];
   const CONC_ITEMS = [
     { key: '1', label: '一个个来', sub: '最稳，最慢' },
     { key: '2', label: '最多 2 个同时' },
-    { key: '3', label: '最多 3 个同时（推荐）', sub: '多模型评分快约 3 倍' },
+    { key: '3', label: '最多 3 个同时（推荐）', sub: '并写时快约 3 倍' },
     { key: '0', label: '不限制', sub: '最快，容易被限流' },
   ];
   const RETRY_ITEMS = [
@@ -888,6 +893,11 @@
     const gs = String(s.gen_strategy || '').trim();
     return MODELS.indexOf(gs) >= 0 ? ('只用' + mLabel(gs)) : '按作品设置';
   }
+  function personaWord(s) {
+    const k = String((s || {}).persona_level) === 'fast' ? 'fast' : 'full';
+    const one = PERSONA_ITEMS.filter(function (x) { return x.key === k; })[0];
+    return (one && one.label) || '完整拟人';
+  }
   function concWord(s) {
     const v = String(s.llm_concurrency == null || s.llm_concurrency === '' ? '3' : s.llm_concurrency);
     return { '1': '一个个来', '2': '最多 2 个同时', '3': '最多 3 个同时', '0': '不限制' }[v] || '最多 3 个同时';
@@ -929,7 +939,10 @@
     const has = cur.indexOf(k) >= 0;
     if (has && cur.length === 1) { toast('至少要留一个模型，全去掉就写不了了', 'bad'); return; }
     const next = MODELS.filter(function (m) { return (m === k ? !has : cur.indexOf(m) >= 0); });
-    const patch = { selected_models: next.join(',') };
+    /* 勾完顺手把「写作策略」也同步过来：只剩 1 个 → 策略就是那一个；勾了多个 → 策略回到
+       「按作品设置」。手机端没有策略这个开关，不同步的话后端那份「仅 DeepSeek」会一直
+       盖住这里的勾选 —— 表现就是点 MiMo 弹回 DeepSeek、书架上那张卡一直显示 DeepSeek。 */
+    const patch = { selected_models: next.join(','), gen_strategy: next.length === 1 ? next[0] : '' };
     if (sameSet(cur, splitModels(s.review_models))) patch.review_models = next.join(',');
     const oldRoles = parseRoles(s.model_roles, cur);
     if (Object.keys(oldRoles).length) {
@@ -983,8 +996,9 @@
       'auto_retry', function (v) { saveSetting('auto_retry', v, '重试次数已更新'); }, 'refresh'));
     wl.appendChild(pickRow('并发写书数', '无人值守续写时同时写几本', (settings.gen_workers || '2') + ' 本', BOOK_WORKER_ITEMS,
       'gen_workers', function (v) { saveSetting('gen_workers', v, '并发写书数已更新'); }, 'layers'));
-    wl.appendChild(swRow('快速模式', '跳过 审查 / 润色 / 深度去AI化 三道叠改，便宜快；想精修某章点那章的「重写本章」',
-      settings.fast_mode === '1', flagSetting('fast_mode', '快速模式'), 'fire'));
+    wl.appendChild(pickRow('拟人化强度', '完整拟人最像真人；快速线便宜省时；单章「重写本章」永远走完整拟人',
+      personaWord(settings), PERSONA_ITEMS, 'persona_level',
+      function (v) { saveSetting('persona_level', v, '拟人化强度已更新'); }, 'fire'));
     wl.appendChild(swRow('字数不达标自动补写', '推荐开着，免得每章都差几百字',
       settings.quality_gate === '1', flagSetting('quality_gate', '自动补写'), 'plus'));
     wl.appendChild(swRow('每章写完自动更新前情摘要', '关掉更省钱，但前后连贯性会下降',
@@ -1032,16 +1046,16 @@
     }
   }
 
-  /* ---- 质检评分模型 ---- */
+  /* ---- 辅助质检模型 ---- */
   function reviewModelSheet() {
     sheet({
-      title: '质检评分模型',
+      title: '辅助质检模型',
       build: function (b) {
         const paint = function () {
           const s = settingsOf();
           const rev = splitModels(s.review_models);
           clear(b);
-          b.appendChild(h('div.fld-hint', { text: '勾上的模型会同时给同一段文字打分，再按维度取中位数；只选一个就一个模型评，最省钱。' }));
+          b.appendChild(h('div.fld-hint', { text: '勾上的模型参与「章末钩子 / 读者视角 / 伏笔台账 / 两模型对比」这些辅助检查；只勾一个最省钱。这跟正文谁主写是两回事。' }));
           const l = h('div.list');
           MODELS.forEach(function (k) {
             const on = rev.indexOf(k) >= 0;
@@ -1054,7 +1068,7 @@
               haptic('light');
               const cur = splitModels(settingsOf().review_models);
               const isOn = cur.indexOf(k) >= 0;
-              if (isOn && cur.length === 1) { toast('至少留一个模型来评分', 'bad'); return; }
+              if (isOn && cur.length === 1) { toast('至少留一个模型做辅助检查', 'bad'); return; }
               const next = MODELS.filter(function (m) { return (m === k ? !isOn : cur.indexOf(m) >= 0); });
               putSettings(one('review_models', next.join(',')), null).then(function (ok) { if (ok) { paint(); A.render(); } });
             });
