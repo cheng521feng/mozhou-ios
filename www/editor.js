@@ -2,13 +2,14 @@
    墨舟移动端 · 写作台  editor.js  v6
    --------------------------------------------------------------------------
    这一版解决四件事（都是「用起来卡住」的地方）：
-   1) 「正在跑什么」永远看得见 —— 所有长操作都会在服务端登记一条 ops，
-      由 app.js 的全局任务条（#opsDock）实时画出来：第几步 / 什么阶段 /
-      已用多久 / 模型在排队还是已经在写。它是 fixed 的、挂在 body 上，
-      切页、切章、关掉写作台、甚至重开 App 都不会丢。
-   2) 选中就能改 —— 正文里选中任意几段，下方浮出「局部改写 / 评分选中段 / 复制」。
+   1) 「正在跑什么」看得见 —— 所有长操作都会在服务端登记一条 ops，
+      由 app.js 在书架页顶部画成「实时状态」块：进度环 / 模型在排队还是已经在写 /
+      每项任务一条进度（第几步 · 什么阶段 · 已用多久）。它跟着正文一起滚，
+      切到别的页不显示（任务照跑），回到书架页就能再看 —— 2026-10-13 起不再用
+      挂在 body 上的浮条。
+   2) 选中就能改 —— 正文里选中任意几段，下方浮出「局部改写 / 复制」。
       注意：重写接口按「段号」算范围，不是字符位置，这里统一换算好再发。
-   3) 检查面板重做 —— 质检 / 爆款 / 合规 / 一致性 / 钩子 / 读者 / 版本，
+   3) 检查面板重做 —— 质检 / 合规 / 一致性 / 钩子 / 版本，
       每一项都用后端真实字段渲染，并且给出「一键按建议改」。
    4) 复制整章 / 复制选中 —— 一键搞定，iOS 剪贴板被限制时自动兜底。
    ========================================================================== */
@@ -21,8 +22,35 @@ window.MZEditor = (function () {
   const { li, card, buttons, seg, MZUI } = A;
 
   let selectedNovelId = null;
+  let styleCache = null;          /* [{style_id, name, style_summary}]，写作台打开时预热 */
+  function ensureStyles() {
+    if (styleCache) return Promise.resolve(styleCache);
+    return api.get('/api/style/list').then(function (r) {
+      styleCache = (r && r.styles) || [];
+      return styleCache;
+    }).catch(function () { styleCache = styleCache || []; return styleCache; });
+  }
+  function curStyleName() {
+    const list = A.state.novels || [];
+    let sid = '';
+    for (let i = 0; i < list.length; i++) {
+      if (String(list[i].id) === String(selectedNovelId)) { sid = String(list[i].style_id || ''); break; }
+    }
+    if (!sid) return '';
+    const st = (styleCache || []).filter(function (x) { return String(x.style_id) === sid; })[0];
+    return st ? String(st.name || '') : '';
+  }
+  function styleSub() {
+    if (!window.MZStyle) return '导入文本可以学一份文风';
+    const nm = curStyleName();
+    return nm ? ('当前：' + nm) : '默认文风 · 点这里挑一份，或去导入一份新的';
+  }
+  function openStylePick() {
+    if (!window.MZStyle) { toast('文风组件没加载出来，退出重进一次试试', 'bad'); return; }
+    window.MZStyle.bindSheet(selectedNovelId);
+  }
 
-  /* ============== 段落工具（重写/评分接口用的是「段号」，不是字符位置） ============== */
+  /* ============== 段落工具（重写接口用的是「段号」，不是字符位置） ============== */
   function paraMarks(text) {
     const lines = String(text || '').split('\n');
     const marks = []; let off = 0;
@@ -134,9 +162,16 @@ window.MZEditor = (function () {
         if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'center' });
       },
       async mount(body) {
-        await A.ensureHero();
+        /* 云端读不到时别把整个写作台换成「加载失败」—— 桌面端只弹一条提示、界面照旧。
+           这里软失败：有上次的数据就照画，什么都没有才给一个能重试的提示块。 */
+        const heroErr = await A.ensureHeroSoft();
         const out = h('div.pad');
         const novels = A.state.novels || [];
+        if (heroErr && !novels.length) {
+          toast(heroErr.message || '连不上云端', 'bad');
+          out.appendChild(A.cloudDownBox(heroErr, '读不到云端书稿'));
+          return out;
+        }
         if (!novels.length) {
           out.appendChild(emptyBox('write', '还没有作品', '先建一本，再来这里写'));
           out.appendChild(buttons([{ label: '新建作品', tone: 'primary', onTap: function () { A.newNovel(); } }]));
@@ -156,10 +191,32 @@ window.MZEditor = (function () {
         });
         out.appendChild(picker);
 
-        const d = await api.get('/api/novel/' + selectedNovelId);
-        const n = d.novel || {};
+        /* 详情接口同样可能在断网时 reject：有总览缓存就先用缓存画，
+           不能因为这一条失败把整页换成「加载失败」。 */
+        let d = null;
+        let detailErr = null;
+        try {
+          d = await api.get('/api/novel/' + selectedNovelId);
+        } catch (e) {
+          detailErr = e;
+        }
+        const cachedNovel = A.findNovel(selectedNovelId)
+          || (A.state.novels || []).filter(function (x) { return String(x.id) === String(selectedNovelId); })[0]
+          || null;
+        const n = (d && d.novel) || cachedNovel || {};
+        if (detailErr) {
+          out.appendChild(h('div.footnote', { text: '云端暂时读不到这本书的详情，先按上次缓存显示；联网后回来刷新。' }));
+        }
         const made = (n.plan && n.plan.today_made) || 0;
         const daily = (n.plan && n.plan.daily) || n.daily_count || 0;
+
+        /* 章节列表（新的在最前）：这一页的「继续写最新章」「章节列表」「搜章节」都要用。
+           以前这里漏了这段取值，整个 mount 一进来就抛 ReferenceError，
+           界面上就是「加载失败 chapters is not defined」——写作页整页打不开。
+           取法和作品页（book.js 的章节卡）保持一致：按 idx 倒序。 */
+        const chapters = (n.chapters || []).slice().sort(function (a, b) {
+          return (b.idx || 0) - (a.idx || 0);
+        });
 
         const hero = h('div.card');
         hero.appendChild(h('div.row', { style: { gap: '16px', alignItems: 'center' } },
@@ -169,7 +226,10 @@ window.MZEditor = (function () {
             h('div.small.muted.mt8', { text: '今日 ' + made + '/' + daily + ' 章 · 全书 ' + (n.chapter_count || 0) + ' 章 ' + fmtNum(n.total_chars || 0) + ' 字' }))));
         /* 大按钮上把这一章的价钱写出来（价格问后端，不写死）。
            「写下一章」= 补更（续写），两条入口是同一件事，不再各开一个按钮。 */
-        const _price = await A.chapterPrice(n.target_words || 2500, 'continue');
+        let _price = 0;
+        try {
+          _price = await A.chapterPrice(n.target_words || 2500, 'continue');
+        } catch (e) { _price = 0; }
         const heroActs = [{ label: _price ? ('写下一章 · ' + _price + ' 墨币') : '写下一章',
           tone: 'primary', onTap: function () { A.askUpdate(n); } }];
         if (chapters.length) {
@@ -380,6 +440,67 @@ window.MZEditor = (function () {
   }
   function writeNum(key, v) { try { localStorage.setItem(key, String(v)); } catch (e) { /* 忽略 */ } }
   function textPrefs() { return { fs: readNum(FS_KEY, 17), lh: readNum(LH_KEY, 1.85) }; }
+
+  /* 按章记住正文滚动位置：{ 书 id: { 章 id: {top, ratio, ts} } }。
+     textarea 一换 value 就会把 scrollTop 归零，以前切章总是跳回第一行。 */
+  const SCROLL_KEY = 'mz_ed_pos';
+  function readScrollStore() {
+    try {
+      const o = JSON.parse(localStorage.getItem(SCROLL_KEY) || '{}');
+      return (o && typeof o === 'object') ? o : {};
+    } catch (e) { return {}; }
+  }
+  function writeScrollStore(o) {
+    try {
+      const books = Object.keys(o);
+      if (books.length > 40) {
+        const latest = function (k) {
+          const m = o[k] || {};
+          let t = 0;
+          Object.keys(m).forEach(function (cid) { t = Math.max(t, Number((m[cid] || {}).ts) || 0); });
+          return t;
+        };
+        books.sort(function (a, b) { return latest(b) - latest(a); }).slice(40).forEach(function (k) { delete o[k]; });
+      }
+      localStorage.setItem(SCROLL_KEY, JSON.stringify(o));
+    } catch (e) { /* 存储满了 / 隐私模式也不影响写作 */ }
+  }
+  function chapterScrollPos(nid, cid) {
+    if (!nid || !cid) return null;
+    const book = readScrollStore()[String(nid)];
+    const p = book && book[String(cid)];
+    return (p && typeof p === 'object') ? p : null;
+  }
+  function saveChapterScroll(nid, cid, ta) {
+    if (!nid || !cid || !ta) return;
+    const top = Math.max(0, Number(ta.scrollTop) || 0);
+    const max = Math.max(0, (Number(ta.scrollHeight) || 0) - (Number(ta.clientHeight) || 0));
+    const ratio = max > 2 ? Math.max(0, Math.min(1, top / max)) : 0;
+    const o = readScrollStore();
+    const k = String(nid), c = String(cid);
+    o[k] = o[k] || {};
+    o[k][c] = { top: Math.round(top), ratio: ratio, ts: Date.now() };
+    writeScrollStore(o);
+  }
+  function restoreChapterScroll(nid, cid, ta) {
+    if (!ta) return;
+    const p = chapterScrollPos(nid, cid);
+    const token = String(nid) + ':' + String(cid);
+    ta.dataset.mzPosToken = token;
+    const apply = function () {
+      if (ta.dataset.mzPosToken !== token) return;
+      const max = Math.max(0, (Number(ta.scrollHeight) || 0) - (Number(ta.clientHeight) || 0));
+      const top = p && typeof p.ratio === 'number' && max > 2
+        ? p.ratio * max
+        : (p ? Number(p.top) || 0 : 0);
+      ta.scrollTop = Math.max(0, Math.min(max, top));
+    };
+    apply();
+    requestAnimationFrame(function () {
+      apply();
+      requestAnimationFrame(apply);
+    });
+  }
   function applyTextPrefs() {
     if (!ed || !ed.wrap) return;
     const p = textPrefs();
@@ -434,10 +555,12 @@ window.MZEditor = (function () {
     document.body.appendChild(wrap);
     document.body.style.overflow = 'hidden';
     ed = {
-      nid: nid, cid: cid, dirty: false, saving: false, data: null,
+      nid: nid, cid: cid, dirty: false, saving: false, savePromise: null, data: null,
       wrap: wrap, check: {}, timers: [], savedAt: '',
     };
     applyTextPrefs();
+    selectedNovelId = nid;
+    ensureStyles();          /* 预热文风列表：点「更多」时要同步显示当前风格名 */
 
     /* ---- 顶部：返回 / 章号 / 检查 ---- */
     const nav = h('div.ed-nav');
@@ -456,6 +579,11 @@ window.MZEditor = (function () {
     /* ---- 章节目录：上一章 / 下一章 / 点标题跳章 ---- */
     let chList = [];
     let chIdx = -1;
+    let scrollTimer = 0;
+    function saveScrollNow() {
+      if (!ed || !textArea) return;
+      saveChapterScroll(nid, cid, textArea);
+    }
     function paintNavSteps() {
       const multi = chList.length > 1;
       prevBtn.disabled = !(chIdx > 0);
@@ -506,6 +634,7 @@ window.MZEditor = (function () {
     }
     async function switchTo(c) {
       if (!ed || !c) return;
+      saveScrollNow();
       if (ed.dirty) {
         await save(false);
         /* 还脏就是没存上：切走会 teardown，那一章的新改动就没了 */
@@ -723,6 +852,11 @@ window.MZEditor = (function () {
 
     const titleInput = h('input.ed-title', { type: 'text', placeholder: '章节标题', value: opt.title || '' });
     const textArea = h('textarea.ed-text', { placeholder: '在这里写正文…（输入会自动保存）', spellcheck: 'false' });
+    textArea.addEventListener('scroll', function () {
+      if (!ed) return;
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(saveScrollNow, 350);
+    }, { passive: true });
     const bodyBox = h('div.ed-body', null, titleInput, textArea);
 
     /* ---- 选中操作条：选中正文就浮出来 ---- */
@@ -787,8 +921,10 @@ window.MZEditor = (function () {
       document.documentElement.style.setProperty('--dock-bottom', Math.round(tb + sb + 12) + 'px');
     }
     syncDockLift();
-    window.addEventListener('resize', syncDockLift);
-    window.addEventListener('orientationchange', function () { setTimeout(syncDockLift, 260); });
+    function onResize() { syncDockLift(); }
+    function onOrientationChange() { setTimeout(syncDockLift, 260); }
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onOrientationChange);
 
     /* ---- 载入 ---- */
     async function load() {
@@ -805,7 +941,6 @@ window.MZEditor = (function () {
         ed.savedAt = '';
         ed.undo = []; ed.redo = []; ed.lastSnap = null;
         markSnap();
-        ed.check.hit = d.hit_review || null;
         paintMeta();
         loadChapterList();
         loadCachedChecks();
@@ -882,7 +1017,11 @@ window.MZEditor = (function () {
     async function openBook(id) {
       if (!ed || !id) return;
       if (Number(id) === Number(ed.nid)) return;
-      if (ed.dirty) await save(false);
+      if (ed.dirty) {
+        await save(false);
+        /* 还脏就是没存上：换书会 teardown，这一章的新改动不能丢 */
+        if (ed && ed.dirty) { toast('这一章还没保存上，先别换书', 'bad'); return; }
+      }
       if (!ed) return;
       let list = [];
       try {
@@ -953,29 +1092,56 @@ window.MZEditor = (function () {
 
     async function save(manual) {
       /* 返回「这次到底存上了没有」，调用方要拿它决定能不能安全地离开这一章。
-         关键一条：PUT 在路上的时候用户还能继续打字。以前回来就无条件 ed.dirty = false，
-         那几段新打的字既不会被重发、界面还显示「✓ 已同步」、关编辑器也不拦 —— 直接丢稿。
-         所以只认「发出去的那份 == 现在这份」才算干净，否则把自动保存再排一次。 */
-      if (!ed || ed.saving) return false;
-      ed.saving = true;
-      const content = textArea.value;
-      const title = titleInput.value;
-      paintMeta();
-      try {
-        const res = await api.put('/api/chapter/' + cid, { content: content, title: title });
-        if (!ed) return false;
-        ed.data = Object.assign({}, ed.data, { chapter: res.chapter, metrics: res.metrics });
-        if (textArea.value === content && titleInput.value === title) ed.dirty = false;
-        else autoSave();
-        const dd = new Date();
-        ed.savedAt = dd.getHours() + ':' + ('0' + dd.getMinutes()).slice(-2);
+         关键两条：
+         1) PUT 在路上的时候用户还能继续打字：只认「发出去的那份 == 现在这份」才算干净；
+         2) 已经有一笔保存在路上时，不直接当失败返回，而是等它落地再判断 / 补发，
+            这样切章、关编辑器不会被「保存中」误拦。 */
+      if (!ed) return false;
+      const edRef = ed;
+      let lastOk = true;
+      while (edRef.saving && edRef.savePromise) {
+        try { lastOk = await edRef.savePromise; } catch (e) { lastOk = false; }
+        if (ed !== edRef) return false;
+      }
+      if (!edRef.dirty) {
         if (manual) { toast('已保存', 'ok'); haptic('success'); }
         return true;
-      } catch (e) {
-        if (manual) toast('保存失败：' + e.message, 'bad');
-        else toast('自动保存失败，请手动点「保存」', 'bad');
-        return false;
-      } finally { if (ed) { ed.saving = false; paintMeta(); } }
+      }
+      /* 在途的那笔已经失败：非手动保存不要连着重试，交给调用方拦下并提示 */
+      if (lastOk === false && !manual) return false;
+
+      /* 打字可能和 PUT 赛跑：最多再补发一次，确保交给调用方的是最新正文。 */
+      for (let tries = 0; tries < 2 && edRef.dirty; tries++) {
+        edRef.saving = true;
+        const content = textArea.value;
+        const title = titleInput.value;
+        paintMeta();
+        const p = (async function () {
+          try {
+            const res = await api.put('/api/chapter/' + cid, { content: content, title: title });
+            if (!ed || ed !== edRef) return false;
+            edRef.data = Object.assign({}, edRef.data, { chapter: res.chapter, metrics: res.metrics });
+            if (textArea.value === content && titleInput.value === title) edRef.dirty = false;
+            else autoSave();
+            const dd = new Date();
+            edRef.savedAt = dd.getHours() + ':' + ('0' + dd.getMinutes()).slice(-2);
+            return true;
+          } catch (e) {
+            if (manual) toast('保存失败：' + e.message, 'bad');
+            else toast('自动保存失败，请手动点「保存」', 'bad');
+            return false;
+          } finally {
+            edRef.saving = false;
+            if (ed === edRef) paintMeta();
+            edRef.savePromise = null;
+          }
+        })();
+        edRef.savePromise = p;
+        const ok = await p;
+        if (!ok || !ed || ed !== edRef) return false;
+      }
+      if (manual && !edRef.dirty) { toast('已保存', 'ok'); haptic('success'); }
+      return !edRef.dirty;
     }
     /* ============== 长操作：进度交给全局任务条（服务端 ops，刷新/切页都不丢） ==============
        label 是任务条上先显示的文字；match 是「服务端那条 ops 的标题长什么样」的正则源码。
@@ -990,16 +1156,6 @@ window.MZEditor = (function () {
         A.pendingDone(token);
         A.refreshLive();
       }
-    }
-
-    /* 局部重写后要不要自动复评：跟桌面端 hit_review_auto 同一口径
-       （默认关＝省一次多模型调用；想看改前改后差多少分就到设置里打开） */
-    async function hitAutoOn() {
-      try {
-        const r = await api.get('/api/settings');
-        const st = (r && r.settings) || {};
-        return st.hit_review_auto !== '0';
-      } catch (e) { return true; }
     }
 
     /* ============== 检查：合规 / 钩子 / 一致性（读者页签已下线） ============== */
@@ -1025,24 +1181,7 @@ window.MZEditor = (function () {
       return ed.check[kind];
     }
 
-    /* ============== 多模型评分 + 按建议重写 ============== */
-    async function runHit(range) {
-      const body = range ? { start: range.start, end: range.end, force: true } : { force: false };
-      const res = await runOp(range ? '评分选中段' : '多模型爆款评分',
-        '/api/chapter/' + cid + '/hit_review',
-        { body: body, timeout: 900000, match: range ? '评分选中段' : '多模型评分' });
-      let agg = res;
-      if (res && res.review) agg = res.review.result || res.review;
-      if (res && res.result) agg = res.result;
-      ed.check.hit = agg;
-      if (ed) ed.data.hit_review = agg;
-      haptic('success');
-      toast('评分完成' + (agg && agg.hit_score !== null && agg.hit_score !== undefined ? '：' + agg.hit_score + ' 分' : ''), 'ok');
-      refreshInspect();
-      return agg;
-    }
-
-    /* 一次「重写 + 复评」；返回 {range, after} */
+    /* 一次「重写 + 存档」；返回 {range, metrics} */
     async function doRewrite(range, instruction) {
       pushHistory();
       const res = await runOp('改写 ' + rangeLabel(range), '/api/chapter/' + cid + '/rewrite', {
@@ -1061,44 +1200,6 @@ window.MZEditor = (function () {
         ? { start: res.range_start, end: res.range_end } : range;
       haptic('success');
       return { range: nr, metrics: res.metrics || null };
-    }
-
-    async function hitFix(agg, retry) {
-      if (!ed) return;
-      if (!agg || agg.ok === false) { toast('先跑一次多模型评分', 'warn'); return; }
-      let r = null;
-      if (agg.scope === 'selection' && agg.range_start !== undefined && agg.range_start !== null) {
-        r = { start: agg.range_start, end: agg.range_end };
-      } else {
-        const n = paraCount(textArea.value);
-        r = n ? { start: 0, end: n - 1 } : null;
-      }
-      if (!r) { toast('这一章还没有正文', 'warn'); return; }
-      const before = { hit_score: agg.hit_score, viral_rate: agg.viral_rate };
-      const inst = A.hitFixInstruction(agg, !!retry);
-      const one = await doRewrite(r, inst);
-      if (!one) return;
-      if (!(await hitAutoOn())) {
-        toast('已替换 ' + rangeLabel(one.range)
-          + '（自动复评已关，到「设置 → 质检设置」里可以打开）', 'ok');
-        return;
-      }
-      toast('已替换 ' + rangeLabel(one.range) + '，正在复评…', 'ok');
-      const after = await runHit(one.range);
-      const lower = function (a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a < b - 0.5; };
-      if (after && lower(after.hit_score, before.hit_score)) {
-        if (!retry) {
-          toast('复评 ' + after.hit_score + ' 分，比改前低 '
-            + (Math.round((before.hit_score - after.hit_score) * 10) / 10) + ' 分，换更聚焦的指令再改一次…', 'warn');
-          await hitFix(after, true);
-        } else {
-          toast('改完还是 ' + after.hit_score + ' 分（改前 ' + before.hit_score
-            + '），可以在「版本」里回滚到改写前', 'bad');
-        }
-      } else if (after && after.hit_score !== null && after.hit_score !== undefined) {
-        toast('复评 ' + after.hit_score + ' 分' + (before.hit_score !== null && before.hit_score !== undefined
-          ? '（改前 ' + before.hit_score + '）' : ''), 'ok');
-      }
     }
 
     function insertHook(t) {
@@ -1132,11 +1233,16 @@ window.MZEditor = (function () {
 
     /* 重写本章 ＝ 精细重写：只这一章临时关掉快速模式，走满 审查 / 润色 / 深度去AI化 */
     async function regen() {
-      const ok = await confirm(ed.dirty
-        ? '精细重写这一章：会覆盖当前正文，未保存的修改会丢失（原内容会存档，可回滚）。继续？'
-        : '精细重写这一章：会覆盖当前正文（原内容会存档，可回滚）。继续？',
+      if (!ed) return;
+      const ok = await confirm('精细重写这一章：会覆盖当前正文；未保存的改动会先保存，原内容会存档，可回滚。继续？',
         { okText: '继续', danger: true });
       if (!ok) return;
+      /* 先把本地改动落到服务端，否则重生成后服务端存档里没有它们，回滚也找不回来 */
+      if (ed.dirty) {
+        await save(false);
+        if (ed && ed.dirty) { toast('这一章还没保存上，先别重写，免得改动丢失', 'bad'); return; }
+      }
+      if (!ed) return;
       pushHistory();
       const res = await runOp('重写本章', '/api/chapter/' + cid + '/regen', { match: '整章重生成' });
       toast((res && res.msg) || '重生成完成', 'ok');
@@ -1165,11 +1271,11 @@ window.MZEditor = (function () {
       const before = rangeText(textArea.value, r);
       const v = await modal({
         title: '按我说的改 ' + rangeLabel(r),
-        text: '用大白话说想怎么改，比如「这段再爽一点」「换成她的视角」「压到 200 字」。留空就按评分/质检的建议改。',
+        text: '用大白话说想怎么改，比如「这段再爽一点」「换成她的视角」「压到 200 字」。留空就让模型按这段的问题自己改。',
         input: 'text', placeholder: '（可留空）', okText: '开始改',
       });
       if (v === null) return;
-      const inst = String(v || '') || A.hitFixInstruction((ed.data || {}).hit_review || {}, false);
+      const inst = String(v || '');
       const one = await doRewrite(r, inst);
       if (!one) return;
       const after = rangeText(textArea.value, one.range);
@@ -1260,6 +1366,7 @@ window.MZEditor = (function () {
         { label: '重做', sub: 'Ctrl/Cmd+Shift+Z', icon: 'refresh', onPick: function () { redo(); } },
         { label: '沉浸模式', sub: '隐藏所有边栏，只留正文', icon: 'eye', onPick: function () { setImmersive(!wrap.classList.contains('ed-immersive')); } },
         { label: '正文字号与行距', sub: '嫌字小、行挤，在这儿调', icon: 'menu', onPick: function () { fontSheet(); } },
+        { label: '文风（这本书按哪份风格写）', sub: styleSub(), icon: 'spark', onPick: function () { openStylePick(); } },
         { label: '导出本章 txt', sub: '存到「文件」或发给自己', icon: 'download', onPick: function () { guard(exportChapter()); } },
         { label: '章节目录 / 跳章', sub: '上一章、下一章也在顶部', icon: 'books', onPick: function () { jumpList(); } },
         { label: '改本章目标字数', sub: '点顶部的「目标」chip 也能改', icon: 'target', onPick: function () { editTarget(); } },
@@ -1290,7 +1397,11 @@ window.MZEditor = (function () {
     /* 从写作台直接开下一章：先把手改存好，再走「补更」那套后台流程 */
     async function writeNext() {
       if (!ed) return;
-      if (ed.dirty) await save(false);
+      if (ed.dirty) {
+        await save(false);
+        if (ed && ed.dirty) { toast('这一章还没保存上，先别写下一章', 'bad'); return; }
+      }
+      if (!ed) return;
       const d = await api.get('/api/novel/' + nid);
       if (!d || !d.novel) { toast('拿不到这本书的信息', 'bad'); return; }
       A.askUpdate(d.novel);
@@ -1299,7 +1410,11 @@ window.MZEditor = (function () {
     /* 自动写到第 N 章：直接复用作品页那张「无人值守续写」表，参数只有一处 */
     async function autoWriteNext() {
       if (!ed) return;
-      if (ed.dirty) await save(false);
+      if (ed.dirty) {
+        await save(false);
+        if (ed && ed.dirty) { toast('这一章还没保存上，先别自动续写', 'bad'); return; }
+      }
+      if (!ed) return;
       const d = await api.get('/api/novel/' + nid);
       if (!d || !d.novel) { toast('拿不到这本书的信息', 'bad'); return; }
       if (window.MZBook && MZBook.askAutoWrite) MZBook.askAutoWrite(d.novel);
@@ -1444,9 +1559,14 @@ window.MZEditor = (function () {
        切章、关闭都走它，不会因为拆得不干净而漏事件监听。 */
     function teardown() {
       if (!ed) return null;
+      saveScrollNow();
+      if (scrollTimer) { clearTimeout(scrollTimer); scrollTimer = 0; }
       const w = ed.wrap;
       (ed.timers || []).forEach(function (t) { clearInterval(t); });
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onOrientationChange);
+      window.removeEventListener('beforeunload', onBeforeUnload);
       inspector = null;
       ed = null;
       document.body.style.overflow = '';
@@ -1465,9 +1585,8 @@ window.MZEditor = (function () {
           /* 没存上就留在编辑器里：以前不看结果直接 teardown，那一章就白写了 */
           if (ed && ed.dirty) { toast('还没保存上，先别退出', 'bad'); return; }
         }
-      } else if (!force && ed) {
-        await save(false);
       }
+      /* 干净章节直接退出，不再多发一次 PUT。 */
       if (!ed) return;
       teardown();
       A.render();
@@ -1475,20 +1594,21 @@ window.MZEditor = (function () {
 
     back.addEventListener('click', function () { haptic('light'); guard(closeEditor(false)); });
     navAct.addEventListener('click', function () { haptic('light'); openInspect(); });
-    window.addEventListener('beforeunload', function (e) {
+    function onBeforeUnload(e) {
       if (ed && ed.dirty) { e.preventDefault(); e.returnValue = ''; }
-    });
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
 
     await load();
     /* 注意顺序：必须等正文装进去了再 focus。
        先 focus 再 load 的话，输入框被填上内容后光标会落到末尾，
        浏览器就会把整个页面/输入框滚到最下面 —— 看着就像「点开章节卡在下面」。
-       现在：先装正文，再把光标放开头、正文滚到最上。 */
+       现在：先装正文，再把光标放开头；这一章有记录就恢复上次的位置，没有才回顶部。 */
     if (!ed) return;
     try {
       textArea.focus();
       textArea.setSelectionRange(0, 0);
-      textArea.scrollTop = 0;
+      restoreChapterScroll(nid, cid, textArea);
     } catch (e) { /* 忽略 */ }
   }
 
