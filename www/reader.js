@@ -5,7 +5,7 @@
 
      · 点屏幕中间 —— 顶部 / 底部菜单淡入淡出（菜单在的时候，点哪儿都是收起）
      · 点左边 1/3 —— 上一章；点右边 1/3 —— 下一章
-     · 上下滑 —— 正文跟着走；滑到章末再往上滑，自动进下一章
+     · 上下滑 / 仿真翻页 —— 阅读设置里可选；仿真翻页左右点按或横滑翻页
      · 顶部那条细线 —— 全书读到哪了；底部那条 —— 按住拖动跳章
      · 阅读设置 —— 字号 / 行距 / 背景（纸白·米黄·护眼·深灰·纯黑）/ 字体
      · 读到哪儿按书记着，下次点「继续阅读」接着看；进度还会同步到账号（换手机也在）
@@ -27,9 +27,14 @@ window.MZReader = (function () {
 
   /* ============================== 这台设备上的阅读偏好 ============================== */
   const FS_KEY = 'mz_rd_fs', LH_KEY = 'mz_rd_lh', BG_KEY = 'mz_rd_bg', FT_KEY = 'mz_rd_font';
-  const POS_KEY = 'mz_rd_pos', HINT_KEY = 'mz_rd_hint', MK_KEY = 'mz_rd_marks';
+  const PAGE_KEY = 'mz_rd_page_mode';
+  const POS_KEY = 'mz_rd_pos', CH_KEY = 'mz_rd_ch', HINT_KEY = 'mz_rd_hint', MK_KEY = 'mz_rd_marks';
   const FS_STEPS = [16, 17, 18, 19, 20, 21, 22, 24, 26];
   const LH_STEPS = [1.55, 1.7, 1.85, 2.0, 2.15, 2.35];
+  const PAGE_MODES = [
+    { key: 'scroll', name: '上下滑动', sub: '连续滚动，适合长章一口气读' },
+    { key: 'flip', name: '仿真翻页', sub: '左右翻页，带纸张翻动效果' },
+  ];
   const FONTS = [
     { key: 'song', name: '宋体', css: '"Songti SC","Source Han Serif SC","Noto Serif SC",Georgia,serif' },
     { key: 'hei', name: '黑体', css: '"PingFang SC","Helvetica Neue","Source Han Sans SC",system-ui,sans-serif' },
@@ -45,12 +50,36 @@ window.MZReader = (function () {
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* 忽略 */ } }
+  /* 阅读位置 / 摘录本是「按书 id」存的，而书 id 只在自己账号里有意义 ——
+     换个账号登录（退出重登，或者桌面托盘换了账号），同一个 id 就会撞上上一个人
+     的那本书：位置会跳到别人的章节；本机划的线还会被 loadMarks 当成「离线补传」
+     推进别人的云摘录本（POST /api/mz/marks）。所以这两本本子按账号分开存，
+     键上挂账号（手机号优先，其次用户名）。资料一时没读回来（离线）就沿用上次
+     那个账号的桶，绝不落到无主的公共桶里。2026-10-13 补。 */
+  const OWNER_KEY = 'mz_rd_owner';
+  function accTag() {
+    let live = '';
+    try {
+      const p = (A && A.state && A.state.profile) || null;
+      live = (p && (p.phone || p.username)) || '';
+    } catch (e) { live = ''; }
+    if (live) {
+      live = '@' + String(live).replace(/[^0-9A-Za-z_.-]/g, '');
+      try { if (lsGet(OWNER_KEY) !== live) lsSet(OWNER_KEY, live); } catch (e) { /* 忽略 */ }
+      return live;
+    }
+    return lsGet(OWNER_KEY) || '';
+  }
+  function posKey() { return POS_KEY + accTag(); }
+  function chKey() { return CH_KEY + accTag(); }
+  function mkKey() { return MK_KEY + accTag(); }
   function readNum(k, def) { const v = parseFloat(lsGet(k)); return isFinite(v) && v > 0 ? v : def; }
   function prefs() {
     let bg = BGS[0], ft = FONTS[0];
     for (let i = 0; i < BGS.length; i++) if (BGS[i].key === lsGet(BG_KEY)) bg = BGS[i];
     for (let i = 0; i < FONTS.length; i++) if (FONTS[i].key === lsGet(FT_KEY)) ft = FONTS[i];
-    return { fs: readNum(FS_KEY, 18), lh: readNum(LH_KEY, 1.85), bg: bg, ft: ft };
+    const page = lsGet(PAGE_KEY) === 'flip' ? 'flip' : 'scroll';
+    return { fs: readNum(FS_KEY, 18), lh: readNum(LH_KEY, 1.85), bg: bg, ft: ft, page: page };
   }
   function writeNum(k, v) { lsSet(k, String(v)); }
   function stepIn(list, cur, d) {
@@ -65,7 +94,7 @@ window.MZReader = (function () {
 
   /* 阅读位置：{ 书 id: {cid, idx, title, ratio, ts} }，只记在这台设备上 */
   function readPos() {
-    try { const o = JSON.parse(lsGet(POS_KEY) || '{}'); return (o && typeof o === 'object') ? o : {}; }
+    try { const o = JSON.parse(lsGet(posKey()) || '{}'); return (o && typeof o === 'object') ? o : {}; }
     catch (e) { return {}; }
   }
   function lastPos(nid) {
@@ -77,21 +106,60 @@ window.MZReader = (function () {
     o[String(nid)] = p;
     const keys = Object.keys(o).sort(function (a, b) { return (o[b].ts || 0) - (o[a].ts || 0); });
     keys.slice(40).forEach(function (k) { delete o[k]; });
-    lsSet(POS_KEY, JSON.stringify(o));
+    lsSet(posKey(), JSON.stringify(o));
+  }
+
+  /* 按章记住阅读比例：{ 书 id: { 章 id: {ratio, ts} } }。
+     书级记录只能说「上次停在哪」，回答不了「这一章上次读到哪」。 */
+  function readChPos() {
+    try { const o = JSON.parse(lsGet(chKey()) || '{}'); return (o && typeof o === 'object') ? o : {}; }
+    catch (e) { return {}; }
+  }
+  function chapterPos(nid, cid) {
+    if (!nid || !cid) return null;
+    const book = readChPos()[String(nid)];
+    const p = book && book[String(cid)];
+    return (p && typeof p.ratio === 'number') ? p : null;
+  }
+  function writeChapterPos(nid, cid, ratio, ts) {
+    if (!nid || !cid) return;
+    const o = readChPos();
+    const b = String(nid), c = String(cid);
+    o[b] = o[b] || {};
+    o[b][c] = {
+      ratio: Math.max(0, Math.min(1, Number(ratio) || 0)),
+      ts: Number(ts) || Date.now(),
+    };
+    const chapters = Object.keys(o[b]);
+    if (chapters.length > 1500) {
+      chapters.sort(function (a, b2) { return (o[b][b2].ts || 0) - (o[b][a].ts || 0); })
+        .slice(1500).forEach(function (k) { delete o[b][k]; });
+    }
+    const books = Object.keys(o);
+    if (books.length > 40) {
+      const latest = function (k) {
+        let t = 0;
+        Object.keys(o[k] || {}).forEach(function (cid2) { t = Math.max(t, o[k][cid2].ts || 0); });
+        return t;
+      };
+      books.sort(function (a, b2) { return latest(b2) - latest(a); })
+        .slice(40).forEach(function (k) { delete o[k]; });
+    }
+    lsSet(chKey(), JSON.stringify(o));
   }
 
   /* 摘录本：本机一份（没网也能翻），云端一份（换手机也在）。
      一条 = {id, nid, cid, idx, title, pi, text, note, ratio, ts} */
   function readMarks(nid) {
     try {
-      const o = JSON.parse(lsGet(MK_KEY) || '{}');
+      const o = JSON.parse(lsGet(mkKey()) || '{}');
       const a = o && o[String(nid)];
       return Array.isArray(a) ? a : [];
     } catch (e) { return []; }
   }
   function writeMarks(nid, list) {
     let o = {};
-    try { o = JSON.parse(lsGet(MK_KEY) || '{}') || {}; } catch (e) { o = {}; }
+    try { o = JSON.parse(lsGet(mkKey()) || '{}') || {}; } catch (e) { o = {}; }
     o[String(nid)] = (list || []).slice(-300);
     const keys = Object.keys(o);
     if (keys.length > 40) {
@@ -102,7 +170,7 @@ window.MZReader = (function () {
         return lb - la;
       }).slice(40).forEach(function (k) { delete o[k]; });
     }
-    lsSet(MK_KEY, JSON.stringify(o));
+    lsSet(mkKey(), JSON.stringify(o));
   }
 
   /* ============================== 正文排版 ============================== */
@@ -201,8 +269,9 @@ window.MZReader = (function () {
       h('div.rd-row.rd-tools', null, prev, dirB, setB, next));
 
     /* 首次进来的一句提示 */
+    const flipOn = prefs().page === 'flip';
     const hint = h('div.rd-hint', null,
-      h('div.rd-hintbox', { text: '点中间出菜单 · 左右翻章 · 长按句子划线' }));
+      h('div.rd-hintbox', { text: '点中间出菜单 · ' + (flipOn ? '左右翻页' : '左右翻章') + ' · 长按句子划线' }));
 
     wrap.appendChild(prog);
     wrap.appendChild(view);
@@ -220,9 +289,9 @@ window.MZReader = (function () {
       el: { back: back, more: more, prev: prev, next: next, dir: dirB, set: setB, bot: bot },
       uiOn: true, rest: false, atBottom: false, lastAuto: 0, lastY: 0,
       hideT: 0, saveT: 0, pct: -1, drag: null,
-    paras: [], marks: [], press: 0, pressAt: null, touched: false, pushT: 0, pushTimer: 0,
-    posTs: 0,
-  };
+      paras: [], marks: [], press: 0, pressAt: null, touched: false, pushT: 0, pushTimer: 0,
+      posTs: 0, pageIndex: 0, pageCount: 1, pageStep: 1, lastRatio: 0, turning: false, resizeT: 0,
+    };
     applyPrefs();
     bind();
     setUI(true, true);
@@ -230,15 +299,155 @@ window.MZReader = (function () {
   }
 
   /* ============================== 外观 ============================== */
-  function applyPrefs() {
+  function applyPrefs(reflow) {
     if (!rd) return;
     const p = prefs();
+    const ratio = (reflow && rd.cid) ? chapterRatio() : 0;
     rd.wrap.style.setProperty('--rd-fs', p.fs + 'px');
     rd.wrap.style.setProperty('--rd-lh', String(p.lh));
     rd.wrap.style.setProperty('--rd-bg', p.bg.bg);
     rd.wrap.style.setProperty('--rd-fg', p.bg.fg);
     rd.wrap.style.setProperty('--rd-dim', p.bg.dim);
     rd.wrap.style.setProperty('--rd-font', p.ft.css);
+    rd.wrap.classList.toggle('rd-flip', p.page === 'flip');
+    if (reflow && rd.cid) relayout(ratio);
+  }
+
+  /* ============================== 分页 / 仿真翻页 ============================== */
+  function isFlip() { return !!(rd && rd.wrap.classList.contains('rd-flip')); }
+
+  function pageMetrics() {
+    if (!rd || !isFlip()) return { step: 1, count: 1 };
+    const page = rd.page;
+    const cs = getComputedStyle(page);
+    const padL = parseFloat(cs.paddingLeft) || 0;
+    const padR = parseFloat(cs.paddingRight) || 0;
+    const gap = padL + padR;
+    const colW = Math.max(1, page.clientWidth - gap);
+    const step = Math.max(1, colW + gap);
+    if (Math.abs(step - rd.pageStep) > .5 || !page.style.getPropertyValue('--rd-page-step')) {
+      page.style.setProperty('--rd-page-step', colW + 'px');
+      page.style.setProperty('--rd-col-gap', gap + 'px');
+      page.offsetHeight; /* 让栏宽先落版，再量页数 */
+    }
+    const width = Math.max(0, page.scrollWidth - padL - padR + gap);
+    const count = Math.max(1, Math.round(width / step) || 1);
+    rd.pageStep = step;
+    rd.pageCount = count;
+    return { step: step, count: count };
+  }
+
+  function applyPageTransform(index) {
+    if (!rd) return;
+    const m = pageMetrics();
+    rd.pageIndex = Math.max(0, Math.min(m.count - 1, Number(index) || 0));
+    rd.lastRatio = m.count <= 1 ? 1 : rd.pageIndex / (m.count - 1);
+    rd.page.style.transition = 'none';
+    rd.page.style.transform = 'translate3d(' + (-rd.pageIndex * m.step) + 'px,0,0)';
+  }
+
+  function paintPageProgress() {
+    if (!rd) return;
+    paintProgress();
+    syncBottom();
+    paintStat();
+    if (!rd.rest) schedSave();
+  }
+
+  function setPageIndex(index, silent) {
+    if (!rd) return;
+    applyPageTransform(index);
+    if (!silent) paintPageProgress();
+  }
+
+  function dropTurnLeaf(leaf) {
+    if (leaf && leaf.parentNode) leaf.parentNode.removeChild(leaf);
+  }
+
+  function makeTurnLeaf(index) {
+    if (!rd) return null;
+    const view = rd.view, page = rd.page;
+    const pr = page.getBoundingClientRect(), vr = view.getBoundingClientRect();
+    const m = pageMetrics();
+    const leaf = h('div.rd-leaf');
+    leaf.style.left = (pr.left - vr.left) + 'px';
+    leaf.style.top = (pr.top - vr.top) + 'px';
+    leaf.style.width = pr.width + 'px';
+    leaf.style.height = pr.height + 'px';
+    const inner = page.cloneNode(true);
+    inner.style.transition = 'none';
+    inner.style.transform = 'translate3d(' + (-index * m.step) + 'px,0,0)';
+    inner.style.opacity = '1';
+    leaf.appendChild(inner);
+    view.appendChild(leaf);
+    return leaf;
+  }
+
+  function animateTurnLeaf(leaf, dir, done) {
+    let finished = false;
+    function finish() {
+      if (finished) return;
+      finished = true;
+      dropTurnLeaf(leaf);
+      done();
+    }
+    leaf.addEventListener('animationend', finish, { once: true });
+    setTimeout(finish, 520);
+    /* 先让浏览器落一帧，再把动画类加上，否则第一次翻页可能不动 */
+    requestAnimationFrame(function () {
+      if (!leaf.parentNode) return;
+      leaf.classList.add(dir > 0 ? 'rd-leaf-next' : 'rd-leaf-prev');
+    });
+  }
+
+  function turnPage(dir) {
+    if (!rd || !isFlip() || rd.turning) return;
+    const m = pageMetrics();
+    if (dir > 0 && rd.pageIndex >= m.count - 1) { step(1); return; }
+    if (dir < 0 && rd.pageIndex <= 0) { step(-1); return; }
+    const from = rd.pageIndex, to = Math.max(0, Math.min(m.count - 1, from + dir));
+    rd.turning = true;
+    haptic('light');
+    if (dir > 0) {
+      const leaf = makeTurnLeaf(from);
+      setPageIndex(to, true);
+      animateTurnLeaf(leaf, 1, function () {
+        if (rd) { rd.turning = false; paintPageProgress(); }
+      });
+    } else {
+      const leaf = makeTurnLeaf(to);
+      animateTurnLeaf(leaf, -1, function () {
+        if (!rd) return;
+        setPageIndex(to, true);
+        rd.turning = false;
+        paintPageProgress();
+      });
+    }
+  }
+
+  function relayout(ratio) {
+    if (!rd) return;
+    rd.rest = true;
+    Array.prototype.forEach.call(rd.view.querySelectorAll('.rd-leaf'), dropTurnLeaf);
+    rd.page.style.transition = 'none';
+    const apply = function () {
+      if (!rd) return;
+      if (isFlip()) {
+        const m = pageMetrics();
+        applyPageTransform(Math.round((Number(ratio) || 0) * (m.count - 1)));
+      } else {
+        rd.page.style.transform = 'none';
+        rd.pageIndex = 0;
+        rd.pageCount = 1;
+        const v = rd.view, max = v.scrollHeight - v.clientHeight;
+        v.scrollTop = ratio > 0 ? Math.round(Math.max(0, max) * ratio) : 0;
+      }
+      paintProgress();
+      syncBottom();
+      paintStat();
+      rd.rest = false;
+    };
+    requestAnimationFrame(function () { requestAnimationFrame(apply); });
   }
 
   /* 当前生效的底部安全区（app.js 会把 env() 读出来写进 --safe-b） */
@@ -255,7 +464,16 @@ window.MZReader = (function () {
     const px = uiVisible() ? (hgt + 10) : Math.max(safeBottom() + 12, 14);
     document.documentElement.style.setProperty('--dock-bottom', Math.round(px) + 'px');
   }
-  function onResize() { syncDock(); }
+  function onResize() {
+    syncDock();
+    if (!rd || !isFlip() || !rd.cid) return;
+    const ratio = typeof rd.lastRatio === 'number' ? rd.lastRatio : chapterRatio();
+    if (rd.resizeT) clearTimeout(rd.resizeT);
+    rd.resizeT = setTimeout(function () {
+      rd.resizeT = 0;
+      if (rd) relayout(ratio);
+    }, 90);
+  }
 
   /* ============================== 菜单显隐 ============================== */
   function setUI(on, init) {
@@ -301,7 +519,14 @@ window.MZReader = (function () {
     });
     view.addEventListener('pointerup', function (ev) {
       const p = pt; pt = null;
-      if (!p || p.moved || Date.now() - p.t > 520) return;
+      if (!p) return;
+      const dx = ev.clientX - p.x, dy = ev.clientY - p.y;
+      if (p.moved && isFlip() && Math.abs(dx) > 28 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+        if (uiVisible()) setUI(false);
+        turnPage(dx > 0 ? -1 : 1);
+        return;
+      }
+      if (p.moved || Date.now() - p.t > 520) return;
       if (Math.abs(view.scrollTop - p.sx) > 6) return;
       tap(ev.clientX);
     });
@@ -348,11 +573,10 @@ window.MZReader = (function () {
 
     /* 滚动：进度条、记位置、章末越界翻章 */
     view.addEventListener('scroll', function () {
-      if (!rd) return;
-      const br = bookRatio();
-      rd.prog.style.width = (br * 100).toFixed(2) + '%';
-      const pc = Math.round(br * 100);
-      if (pc !== rd.pct) { rd.pct = pc; paintStat(); }
+      if (!rd || isFlip()) return;
+      const before = rd.pct;
+      paintProgress();
+      if (rd.pct !== before) paintStat();
       syncBottom();
       if (!rd.rest) schedSave();   /* touched 只看真正的手势，见下面的 pointerdown */
     }, { passive: true });
@@ -362,7 +586,7 @@ window.MZReader = (function () {
       if (ev.touches.length === 1) rd.lastY = ev.touches[0].clientY;
     }, { passive: true });
     view.addEventListener('touchmove', function (ev) {
-      if (!rd || ev.touches.length !== 1) return;
+      if (!rd || isFlip() || ev.touches.length !== 1) return;
       const y = ev.touches[0].clientY;
       if (rd.atBottom && y < rd.lastY - 3) autoNext();
       rd.lastY = y;
@@ -370,6 +594,12 @@ window.MZReader = (function () {
     }, { passive: true });
     view.addEventListener('wheel', function (ev) {
       if (!rd) return;
+      if (isFlip()) {
+        if (Math.abs(ev.deltaX) > 24 || Math.abs(ev.deltaY) > 24) {
+          turnPage((ev.deltaX || ev.deltaY) > 0 ? 1 : -1);
+        }
+        return;
+      }
       rd.touched = true;
       if (rd.atBottom && ev.deltaY > 0) autoNext();
       if (uiVisible() && Math.abs(ev.deltaY) > 2) setUI(false);
@@ -402,13 +632,14 @@ window.MZReader = (function () {
     if (uiVisible()) { setUI(false); return; }
     const r = rd.view.getBoundingClientRect();
     const t = (x - r.left) / Math.max(1, r.width);
-    if (t < 0.28) step(-1);
-    else if (t > 0.72) step(1);
+    if (t < 0.28) { if (isFlip()) turnPage(-1); else step(-1); }
+    else if (t > 0.72) { if (isFlip()) turnPage(1); else step(1); }
     else setUI(true);
   }
 
   /* ============================== 章末自动翻章 ============================== */
   function autoNext() {
+    if (isFlip()) return;
     if (rd.chIdx < 0 || rd.chIdx >= rd.chList.length - 1) return;
     const now = Date.now();
     if (now - rd.lastAuto < 1300) return;
@@ -421,11 +652,20 @@ window.MZReader = (function () {
      否则这种章永远触发不了「再往上滑进下一章」。 */
   function syncBottom() {
     if (!rd) return;
+    if (isFlip()) {
+      const m = pageMetrics();
+      rd.atBottom = rd.pageIndex >= m.count - 1;
+      return;
+    }
     const v = rd.view;
     rd.atBottom = v.scrollTop + v.clientHeight >= v.scrollHeight - 4;
   }
   function chapterRatio() {
     if (!rd) return 0;
+    if (isFlip()) {
+      const m = pageMetrics();
+      return m.count <= 1 ? 1 : Math.max(0, Math.min(1, rd.pageIndex / (m.count - 1)));
+    }
     const v = rd.view, max = v.scrollHeight - v.clientHeight;
     if (max <= 2) return 1;
     return Math.max(0, Math.min(1, v.scrollTop / max));
@@ -435,11 +675,23 @@ window.MZReader = (function () {
     const n = rd.chList.length;
     return Math.max(0, Math.min(1, (Math.max(0, rd.chIdx) + chapterRatio()) / n));
   }
+  /* 顶部进度线和底部可拖进度条必须用同一个值。 */
+  function paintProgress() {
+    if (!rd) return;
+    const br = bookRatio();
+    const pct = (br * 100).toFixed(2) + '%';
+    rd.prog.style.width = pct;
+    rd.lineFill.style.width = pct;
+    rd.knob.style.left = pct;
+    rd.pct = Math.round(br * 100);
+  }
   function saveNow() {
     if (!rd || !rd.cid) return;
     if (rd.touched) rd.posTs = Date.now();      /* 用户真读到这儿了，时间戳才算新的 */
-    writePos(rd.nid, { cid: rd.cid, idx: rd.idx, title: rd.t || '',
-                       ratio: chapterRatio(), ts: rd.posTs || Date.now() });
+    const ratio = chapterRatio();
+    const ts = rd.posTs || Date.now();
+    writePos(rd.nid, { cid: rd.cid, idx: rd.idx, title: rd.t || '', ratio: ratio, ts: ts });
+    writeChapterPos(rd.nid, rd.cid, ratio, ts);
     pushPos(false);
   }
   function schedSave() {
@@ -519,7 +771,9 @@ window.MZReader = (function () {
     const total = rd.chList.length;
     if (!total) { rd.stat.textContent = ''; return; }
     const br = Math.round(bookRatio() * 100);
-    rd.stat.textContent = '第 ' + rd.idx + ' 章 / 共 ' + total + ' 章 · 全书 ' + br + '%';
+    const pages = isFlip() && rd.pageCount > 1
+      ? ' · 第 ' + (rd.pageIndex + 1) + '/' + rd.pageCount + ' 页' : '';
+    rd.stat.textContent = '第 ' + rd.idx + ' 章 / 共 ' + total + ' 章' + pages + ' · 全书 ' + br + '%';
   }
   function paintNavTitle() {
     if (!rd) return;
@@ -560,7 +814,7 @@ window.MZReader = (function () {
     /* 打开时先把「这条进度是什么时候读到的」定下来：没动过手就沿用原来那条的时间戳，
        别拿 now 去把别的设备刚读到的位置冲掉。 */
     rd.posTs = cid ? Date.now() : ((rd.restore && rd.restore.ts) || 0);
-    await showChapter(use, rd.restore ? rd.restore.ratio : 0);
+    await showChapter(use, rd.restore ? rd.restore.ratio : undefined);
     if (!cid && local) catchUp(nid, use.id);
   }
 
@@ -571,6 +825,11 @@ window.MZReader = (function () {
 
   async function showChapter(ch, ratio) {
     if (!rd || !ch) return;
+    if (typeof ratio !== 'number') {
+      const saved = chapterPos(rd.nid, ch.id);
+      ratio = saved ? saved.ratio : 0;
+    }
+    ratio = Math.max(0, Math.min(1, Number(ratio) || 0));
     const want = Number(ch.id);
     rd.cid = want;
     rd.idx = ch.idx || 0;
@@ -580,7 +839,7 @@ window.MZReader = (function () {
     paintNavTitle();
     paintStat();
     const hit = cache[want];
-    if (hit) { rd.content = String(hit.content || ''); if (hit.title) rd.t = hit.title; paintBody(false); restoreScroll(ratio); prefetch(rd.chIdx + 1); pushPos(true); return; }
+    if (hit) { rd.content = String(hit.content || ''); if (hit.title) rd.t = hit.title; paintBody(false); restoreScroll(ratio); prefetch(rd.chIdx + 1); return; }
 
     paintEmpty2('正在取这一章…');
     let c = null;
@@ -600,12 +859,15 @@ window.MZReader = (function () {
     paintBody(true);
     restoreScroll(ratio);
     prefetch(rd.chIdx + 1);
-    pushPos(true);
   }
 
   function paintBody(anim) {
     if (!rd) return;
     const page = rd.page;
+    page.style.transition = 'none';
+    page.style.transform = 'none';
+    rd.pageIndex = 0;
+    rd.pageCount = 1;
     clear(page);
     const chars = rd.content.length;
     page.appendChild(h('div.rd-chhead', null,
@@ -649,7 +911,9 @@ window.MZReader = (function () {
       acts.appendChild(n);
     }
     box.appendChild(acts);
-    box.appendChild(h('div.rd-es', { text: uiVisible() ? '往上滑也能接着读下一章' : '点两下屏幕中间能叫出菜单' }));
+    box.appendChild(h('div.rd-es', { text: uiVisible()
+      ? (isFlip() ? '点右侧或向左滑，也能接着读下一章' : '往上滑也能接着读下一章')
+      : '点两下屏幕中间能叫出菜单' }));
     return box;
   }
 
@@ -667,6 +931,7 @@ window.MZReader = (function () {
 
   function restoreScroll(ratio) {
     if (!rd) return;
+    if (isFlip()) { relayout(ratio); return; }
     rd.rest = true;
     const view = rd.view;
     const apply = function () {
@@ -681,9 +946,9 @@ window.MZReader = (function () {
         apply();
         syncBottom();
         rd.rest = false;
-        rd.prog.style.width = (bookRatio() * 100).toFixed(2) + '%';
-        rd.pct = Math.round(bookRatio() * 100);
+        paintProgress();
         paintStat();
+        pushPos(true);
       });
     });
   }
@@ -699,10 +964,8 @@ window.MZReader = (function () {
   }
 
   /* ============================== 翻章 ============================== */
-  async function gotoIdx(i) {
+  async function gotoIdx(i, ratio, fallback) {
     if (!rd || !rd.chList.length) return;
-    rd.touched = true;
-    rd.posTs = Date.now();
     if (i < 0) { toast('已经是第一章了', 'warn'); return; }
     if (i >= rd.chList.length) {
       const lastOne = rd.chList[rd.chList.length - 1];
@@ -710,11 +973,25 @@ window.MZReader = (function () {
       toast('已经是最后一章了（第 ' + (lastOne ? lastOne.idx : '') + ' 章）', 'warn');
       return;
     }
+    if (i === rd.chIdx) { paintProgress(); paintStat(); return; }
+    rd.touched = true;
+    rd.posTs = Date.now();
+    saveNow();                    /* 先记住旧章读到哪，再切走 */
     rd.restore = null;
     haptic('light');
-    await showChapter(rd.chList[i], 0);
+    const ch = rd.chList[i];
+    let to = ratio;
+    if (typeof to !== 'number') {
+      const saved = chapterPos(rd.nid, ch.id);
+      to = saved ? saved.ratio : (typeof fallback === 'number' ? fallback : 0);
+    }
+    await showChapter(ch, to);
   }
-  function step(d) { if (rd) gotoIdx(rd.chIdx + d); }
+  function step(d, ratio) {
+    if (!rd) return;
+    const fallback = (d < 0 && isFlip()) ? 1 : 0;
+    gotoIdx(rd.chIdx + d, typeof ratio === 'number' ? ratio : undefined, fallback);
+  }
   function gotoCid(cid) {
     const ch = findCid(cid);
     return ch ? gotoIdx(rd.chList.indexOf(ch)) : null;
@@ -723,6 +1000,10 @@ window.MZReader = (function () {
   /* ============================== 空态 ============================== */
   function paintEmpty2(msg) {
     if (!rd) return;
+    rd.page.style.transition = 'none';
+    rd.page.style.transform = 'none';
+    rd.pageIndex = 0;
+    rd.pageCount = 1;
     clear(rd.page);
     rd.page.appendChild(h('div.rd-blank', null,
       h('div.rd-spin', null, h('span.spinner.lg')),
@@ -730,6 +1011,10 @@ window.MZReader = (function () {
   }
   function paintEmpty(title, sub, retry) {
     if (!rd) return;
+    rd.page.style.transition = 'none';
+    rd.page.style.transform = 'none';
+    rd.pageIndex = 0;
+    rd.pageCount = 1;
     clear(rd.page);
     const box = h('div.rd-blank');
     box.appendChild(h('div.rd-blankt', { text: title }));
@@ -791,8 +1076,8 @@ window.MZReader = (function () {
       fsChip.textContent = p.fs + ' 号';
       lhChip.textContent = p.lh + ' 倍';
     }
-    function bumpFs(d) { writeNum(FS_KEY, stepIn(FS_STEPS, prefs().fs, d)); applyPrefs(); paintChips(); haptic('light'); }
-    function bumpLh(d) { writeNum(LH_KEY, stepIn(LH_STEPS, prefs().lh, d)); applyPrefs(); paintChips(); haptic('light'); }
+    function bumpFs(d) { writeNum(FS_KEY, stepIn(FS_STEPS, prefs().fs, d)); applyPrefs(true); paintChips(); haptic('light'); }
+    function bumpLh(d) { writeNum(LH_KEY, stepIn(LH_STEPS, prefs().lh, d)); applyPrefs(true); paintChips(); haptic('light'); }
 
     box.appendChild(h('div.card.tight', null,
       h('div.row', { style: { gap: '8px', alignItems: 'center' } },
@@ -828,19 +1113,37 @@ window.MZReader = (function () {
     const seg = A.seg(FONTS.map(function (f) { return { key: f.key, label: f.name }; }), (lsGet(FT_KEY) || 'song'),
       function (k) {
         lsSet(FT_KEY, k);
-        applyPrefs();
+        applyPrefs(true);
         Array.prototype.forEach.call(seg.children, function (b, i) { b.classList.toggle('on', FONTS[i].key === k); });
         haptic('light');
       });
     box.appendChild(h('div.card.tight.mt12', null, h('div.small.muted.mb8', { text: '字体' }), seg));
 
-    box.appendChild(h('div.mt12', null, A.buttons([{ label: '恢复默认（18 号 / 1.85 倍 / 纸白 / 宋体）', onTap: function () {
-      writeNum(FS_KEY, 18); writeNum(LH_KEY, 1.85); lsSet(BG_KEY, 'paper'); lsSet(FT_KEY, 'song');
-      applyPrefs(); paintChips(); paintSw();
+    const pageHint = h('div.small.muted.mt8');
+    function paintPageHint() {
+      const cur = PAGE_MODES[prefs().page === 'flip' ? 1 : 0];
+      pageHint.textContent = cur.sub;
+    }
+    const pageSeg = A.seg(PAGE_MODES.map(function (m) { return { key: m.key, label: m.name }; }), prefs().page,
+      function (k) {
+        lsSet(PAGE_KEY, k);
+        applyPrefs(true);
+        Array.prototype.forEach.call(pageSeg.children, function (b, i) { b.classList.toggle('on', PAGE_MODES[i].key === k); });
+        paintPageHint();
+        haptic('light');
+      });
+    box.appendChild(h('div.card.tight.mt12', null,
+      h('div.small.muted.mb8', { text: '翻页方式' }), pageSeg, pageHint));
+    paintPageHint();
+
+    box.appendChild(h('div.mt12', null, A.buttons([{ label: '恢复默认阅读设置', onTap: function () {
+      writeNum(FS_KEY, 18); writeNum(LH_KEY, 1.85); lsSet(BG_KEY, 'paper'); lsSet(FT_KEY, 'song'); lsSet(PAGE_KEY, 'scroll');
+      applyPrefs(true); paintChips(); paintSw(); paintPageHint();
       Array.prototype.forEach.call(seg.children, function (b, i) { b.classList.toggle('on', FONTS[i].key === 'song'); });
+      Array.prototype.forEach.call(pageSeg.children, function (b, i) { b.classList.toggle('on', PAGE_MODES[i].key === 'scroll'); });
       haptic('light');
     } }])));
-    box.appendChild(h('div.footnote', { text: '阅读偏好只存在这台设备上，和写作台的字号行距是两套。' }));
+    box.appendChild(h('div.footnote', { text: '默认：18 号 / 1.85 倍 / 纸白 / 宋体 / 上下滑动。阅读偏好只存在这台设备上，和写作台的字号行距是两套。' }));
     paintChips();
     sheet({ title: '阅读设置', build: function (b) { b.appendChild(box); } });
   }
@@ -1002,6 +1305,17 @@ window.MZReader = (function () {
     if (!rd) return;
     const el = rd.page.querySelector('.rd-text p[data-idx="' + Number(pi || 0) + '"]');
     if (!el) return;
+    if (isFlip()) {
+      const m = pageMetrics();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const rects = range.getClientRects();
+      const r = (rects && rects.length) ? rects[0] : el.getBoundingClientRect();
+      const pr = rd.page.getBoundingClientRect();
+      const logicalX = r.left - pr.left + rd.pageIndex * m.step;
+      setPageIndex(Math.max(0, Math.min(m.count - 1, Math.round(logicalX / m.step))));
+      return;
+    }
     const v = rd.view;
     const top = el.getBoundingClientRect().top - v.getBoundingClientRect().top + v.scrollTop - 88;
     v.scrollTop = Math.max(0, top);
@@ -1010,7 +1324,7 @@ window.MZReader = (function () {
     if (!rd || !m) return;
     if (Number(m.cid) !== Number(rd.cid)) {
       const ch = findCid(m.cid);
-      if (ch) await showChapter(ch, 0);
+      if (ch) { saveNow(); await showChapter(ch, 0); }
     }
     if (!rd) return;
     scrollToPara(m.pi);
@@ -1131,13 +1445,17 @@ window.MZReader = (function () {
     const nid = rd.nid, cid = rd.cid, idx = rd.idx, t = rd.t;
     actions([
       { label: '目录 / 跳章', icon: 'layers', sub: '共 ' + rd.chList.length + ' 章', onPick: dirSheet },
-      { label: '阅读设置', icon: 'sliders', sub: '字号 / 行距 / 背景 / 字体', onPick: setSheet },
+      { label: '阅读设置', icon: 'sliders', sub: '翻页方式 / 字号 / 行距 / 背景 / 字体', onPick: setSheet },
       { label: '摘录本', icon: 'book',
         sub: (rd.marks && rd.marks.length) ? ('共 ' + rd.marks.length + ' 条划线 / 想法') : '长按正文就能划线',
         onPick: marksSheet },
       { label: '用写作台改这一章', icon: 'edit', onPick: function () {
         close(true);
-        MZEditor.openChapter(nid, cid, { title: t, idx: idx, nid: nid });
+        if (window.MZEditor && MZEditor.openChapter) {
+          MZEditor.openChapter(nid, cid, { title: t, idx: idx, nid: nid });
+        } else {
+          toast('写作台没加载出来，退出重进一次试试', 'bad');
+        }
       } },
       { label: '复制这一章', icon: 'copy', sub: '含标题，可直接发出去', onPick: function () { copyChapter(); } },
       { label: '导出这一章 txt', icon: 'download', onPick: function () { exportChapter(); } },
