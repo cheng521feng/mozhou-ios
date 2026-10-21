@@ -131,8 +131,13 @@ window.MZBook = (function () {
 
   async function page(nid) {
     const out = h('div.pad');
-    await A.ensureHero();
+    /* 拉不到总览也别整页报错：找得到这本书就照画（详情自己还有一层兜底），找不到才提示。 */
+    const heroErr = await A.ensureHeroSoft();
     const n = A.findNovel(nid);
+    if (!n && heroErr && !(A.state.novels || []).length) {
+      out.appendChild(A.cloudDownBox(heroErr, '读不到云端作品'));
+      return out;
+    }
     if (!n) {
       out.appendChild(emptyBox('bolt', '找不到这本书', '可能已经被删掉了，回书架下拉刷新看看'));
       return out;
@@ -162,12 +167,17 @@ window.MZBook = (function () {
       tabBox.appendChild(A.seg(TABS, tab, function (k) { tab = k; haptic('light'); paint(); }));
       clear(pane);
       if (tab === 'chapters') pane.appendChild(chaptersCard(nid, nv));
-      else if (tab === 'characters') pane.appendChild(charactersCard(n, nv));
+      else if (tab === 'characters') {
+        pane.appendChild(charactersCard(n, nv));
+        pane.appendChild(voiceCard(n));
+      }
       else if (tab === 'foreshadows') pane.appendChild(foreshadowCard(n, nv));
       else { pane.appendChild(bibleCard(n, nv)); pane.appendChild(summaryCard(n, nv)); }
     }
-    out.appendChild(tabBox);
-    out.appendChild(pane);
+    /* 页签和它管着的内容必须绑在一起：宽屏（ipad.css / desktop.css）把这一页拆成
+       左右两栏时，它俩要是各自当 .pad 的直接子元素，页签会被挤到左栏（书卡下面、
+       贴着屏底），跟右边的内容隔着一大段空白。包一层 .bk-body 就跟着内容走。 */
+    out.appendChild(h('div.bk-body', null, tabBox, pane));
     /* 底部大按钮上把价钱写出来（跟写作页同一个口径，价格问后端） */
     const price = await A.chapterPrice(n.target_words || 2500, 'continue');
     out.appendChild(actionBar(n, price));
@@ -267,6 +277,154 @@ window.MZBook = (function () {
         ]));
       },
     });
+  }
+
+  /* ---------- 人物语音卡：让每个人说话不一样（跟桌面端同一套字段、同一个接口） ----------
+     语音卡挂在「人物卡」（/api/novel/<id>/cards，kind=character）上，填了才会在
+     生成时按角色注入提示词。没有人物卡也能在这里直接建一张。 */
+  function voiceOf(card) {
+    const d = (card && card.data) || {};
+    return (d.voice && typeof d.voice === 'object') ? d.voice : {};
+  }
+  function voiceLine(v) {
+    v = v || {};
+    const bits = [
+      (v.tics && v.tics.length) ? '口头禅 ' + v.tics.join('、') : '',
+      v.sent_len ? '句长偏' + v.sent_len : '',
+      v.register || '',
+      v.address ? '称呼 ' + v.address : '',
+    ].filter(Boolean);
+    return bits.length ? ('🎙 ' + bits.join(' · ')) : '';
+  }
+  function voiceFields(v) {
+    v = v || {};
+    const arr = function (x) { return Array.isArray(x) ? x.join('、') : (x || ''); };
+    const moods = (v.moods && typeof v.moods === 'object')
+      ? Object.keys(v.moods).map(function (k) { return k + '→' + v.moods[k]; }).join('；') : (v.moods || '');
+    return {
+      tics: textField('口头禅', arr(v.tics), { ph: '说白了、你懂吧（顿号分隔）' }),
+      address: textField('称呼习惯', v.address || '', { ph: '叫男主阿程，从不叫全名' }),
+      sent: textField('句长习惯', v.sent_len || '', { ph: '短 / 中 / 长，留空＝不指定' }),
+      reg: textField('用词层级', v.register || '', { ph: '文雅 / 口语 / 粗鄙 / 方言 / 书卷气' }),
+      moods: textField('情绪 → 表达', moods, { ph: '愤怒→冷笑，句子更短；分号分隔' }),
+      avoid: textField('忌口', arr(v.avoid), { ph: '这个角色不会说的词 / 腔调，顿号分隔' }),
+    };
+  }
+  function readVoice(f) {
+    const split = function (x) { return String(x || '').split(/[、,，;；\s]+/).filter(Boolean).slice(0, 6); };
+    const v = {};
+    const tics = split(f.tics.value());
+    if (tics.length) v.tics = tics;
+    if (f.sent.value().trim()) v.sent_len = f.sent.value().trim().slice(0, 4);
+    if (f.reg.value().trim()) v.register = f.reg.value().trim().slice(0, 12);
+    if (f.address.value().trim()) v.address = f.address.value().trim().slice(0, 60);
+    const avoid = split(f.avoid.value());
+    if (avoid.length) v.avoid = avoid;
+    const moods = {};
+    String(f.moods.value() || '').split(/[;；\n]+/).forEach(function (seg) {
+      const i = seg.indexOf('→');
+      if (i > 0) {
+        const k = seg.slice(0, i).trim(), x = seg.slice(i + 1).trim();
+        if (k && x) moods[k.slice(0, 8)] = x.slice(0, 40);
+      }
+    });
+    if (Object.keys(moods).length) v.moods = moods;
+    return Object.keys(v).length ? v : null;
+  }
+  function fillVoice(f, v) {
+    v = v || {};
+    const arr = function (x) { return Array.isArray(x) ? x.join('、') : (x || ''); };
+    f.tics.input.value = arr(v.tics);
+    f.address.input.value = v.address || '';
+    f.sent.input.value = v.sent_len || '';
+    f.reg.input.value = v.register || '';
+    f.avoid.input.value = arr(v.avoid);
+    f.moods.input.value = (v.moods && typeof v.moods === 'object')
+      ? Object.keys(v.moods).map(function (k) { return k + '→' + v.moods[k]; }).join('；') : (v.moods || '');
+  }
+
+  /* 编辑一张人物卡的语音卡；card 为 null 时 = 新建一张人物卡 */
+  function voiceEditor(n, card, onSaved) {
+    const f = voiceFields(voiceOf(card));
+    const name = textField('角色名', card ? card.name : '', { ph: '必须和正文里的人名一致' });
+    sheet({
+      title: card ? ('语音卡 · ' + card.name) : '新建人物卡（语音卡）',
+      height: '86vh',
+      build: function (b, close) {
+        b.appendChild(h('div.footnote', {
+          text: '填了才会按角色注入生成提示词，让每个人说话不一样；留空＝不指定，不影响原来怎么写。' }));
+        b.appendChild(name.node);
+        [f.tics, f.address, f.sent, f.reg, f.moods, f.avoid].forEach(function (x) { b.appendChild(x.node); });
+        b.appendChild(buttons([
+          { label: 'AI 分析说话特征', tone: 'blue', onTap: async function () {
+              const nm = name.value().trim();
+              if (!nm) { toast('先填角色名，AI 才知道要分析谁', 'warn'); return; }
+              const bz = busySheet('AI 正在读最近 10 章的对白…');
+              try {
+                const r = await api.post('/api/novel/' + n.id + '/voice/suggest', { name: nm }, { timeout: 300000 });
+                fillVoice(f, r.voice || {});
+                bz.close();
+                toast('已归纳说话特征，检查后点「保存语音卡」', 'ok');
+              } catch (e) { bz.close(); toast(e.message, 'bad'); }
+          } },
+          { label: '保存语音卡', tone: 'primary', onTap: async function () {
+              const nm = name.value().trim();
+              if (!nm) { toast('角色名不能为空', 'bad'); return; }
+              const data = Object.assign({}, (card && card.data) || {});
+              const v = readVoice(f);
+              if (v) data.voice = v; else delete data.voice;
+              const bz = busySheet('正在保存…');
+              try {
+                await api.post('/api/novel/' + n.id + '/cards', {
+                  id: card ? card.id : undefined, novel_id: n.id, kind: 'character',
+                  name: nm, data: data, status: (card && card.status) || 'active',
+                });
+                bz.close();
+                toast('语音卡已保存', 'ok'); haptic('success');
+                close();
+                if (onSaved) onSaved();
+              } catch (e) { bz.close(); toast(e.message, 'bad'); }
+          } },
+        ]));
+      },
+    });
+  }
+
+  /* 人物页签里第二块：角色语音卡（挂在人物卡上） */
+  function voiceCard(n) {
+    const box = h('div.card');
+    box.appendChild(h('div.card-head', null, h('h3', { text: '角色语音卡' }),
+      h('span.sp', { text: '让每个人说话不一样' })));
+    const list = h('div.list.mt12');
+    const foot = h('div.mt12');
+    box.appendChild(list);
+    box.appendChild(foot);
+    box.appendChild(h('div.footnote', {
+      text: '语音卡挂在「人物卡」上：填了口头禅 / 称呼 / 句长 / 用词层级，生成时按角色注入，人物就不容易写成同一个腔调。' }));
+
+    async function paint() {
+      clear(list); clear(foot);
+      let cards = [];
+      try {
+        const d = await api.get('/api/novel/' + n.id + '/cards');
+        cards = (d.cards || []).filter(function (c) { return c.kind === 'character'; });
+      } catch (e) { /* 拿不到就只留「新建人物卡」 */ }
+      if (!cards.length) list.appendChild(h('div.small.muted', { text: '还没有人物卡。' }));
+      cards.forEach(function (c) {
+        const line = voiceLine(voiceOf(c));
+        list.appendChild(li({
+          title: c.name,
+          sub: line || '还没填语音卡（点开就能填）',
+          arrow: true,
+          onTap: function () { haptic('light'); voiceEditor(n, c, paint); },
+        }));
+      });
+      foot.appendChild(buttons([
+        { label: '新建人物卡', tone: 'primary', onTap: function () { voiceEditor(n, null, paint); } },
+      ]));
+    }
+    paint();
+    return box;
   }
 
   function coverNode(n, cls) {
@@ -569,6 +727,13 @@ window.MZBook = (function () {
     const characters = textField('人物', val('characters', ''), { area: true, rows: 4 });
     const setting = textField('世界设定', val('setting', ''), { area: true, rows: 3 });
     const style = textField('文风', val('style', ''), { ph: '如：冷硬写实' });
+    /* 拟人化（跟桌面端设定页同一套字段）：
+       书禁词 = 你在写作台手动删掉的 AI 腔，生成与去AI化时自动规避；
+       文风指纹 = 从本书正文统计出来的节奏画像，续写时按它保持节奏。 */
+    const banned = textField('本书禁词', val('banned_words', ''), { area: true, rows: 5,
+      hint: '写作台里你手动删掉的 AI 腔会自动攒进来（同一个词删够两次才收录）。每行一个：只写词＝删掉；写「原词=替换词」＝换成后者。' });
+    const fp = textField('文风指纹', val('fingerprint', ''), { area: true, rows: 4,
+      hint: '从本书正文统计出来的节奏画像（句长 / 段落 / 对话 / 标点）。惰得填就点下面两个按钮。' });
     const daily = textField('每日章数', val('daily_count', 3), { type: 'number' });
     const tw = textField('每章目标字数', val('target_words', 2500), { type: 'number' });
     const tc = textField('计划总章数', val('target_chapters', 0), { type: 'number', hint: '填 0 表示不设上限' });
@@ -576,9 +741,31 @@ window.MZBook = (function () {
     const pinned = toggleRow('在书架置顶', !!val('pinned', false));
 
     clear(s.body);
-    [title, genre, author, intro, outline, characters, setting, style].forEach(function (f) {
+    [title, genre, author, intro, outline, characters, setting, style, banned, fp].forEach(function (f) {
       s.body.appendChild(f.node);
     });
+
+    /* 文风指纹：本地统计不花模型，随时能跑；AI 提炼会调一次模型，所以单独确认一次。 */
+    s.body.appendChild(buttons([
+      { label: '按本书重算文风指纹', onTap: async function () {
+          try {
+            const r = await api.post('/api/novel/' + n.id + '/fingerprint/rebuild', { refine: false });
+            fp.input.value = (r && r.fingerprint) || '';
+            toast('文风指纹已按本书正文重算，记得点下面「保存资料」', 'ok');
+          } catch (e) { toast(e.message, 'bad'); }
+      } },
+      { label: 'AI 生成文风指纹', tone: 'blue', onTap: async function () {
+          const ok = await confirm('AI 提炼会调用一次模型，把统计提成 3~5 条本书文风画像。继续？', { okText: '继续' });
+          if (!ok) return;
+          const bs = busySheet('AI 正在提炼文风…');
+          try {
+            const r = await api.post('/api/novel/' + n.id + '/fingerprint/rebuild', { refine: true }, { timeout: 300000 });
+            fp.input.value = (r && r.fingerprint) || '';
+            bs.close();
+            toast(r && r.refined ? '文风指纹已生成，记得点下面「保存资料」' : '模型这次没提炼成功，已写入本地统计版', 'ok');
+          } catch (e) { bs.close(); toast(e.message, 'bad'); }
+      } },
+    ]));
     s.body.appendChild(h('div.g2', null, daily.node, tw.node));
     s.body.appendChild(tc.node);
     s.body.appendChild(enabled.node);
@@ -606,6 +793,9 @@ window.MZBook = (function () {
         const bs = busySheet('正在保存…');
         try {
           await api.put('/api/novel/' + n.id, body);
+          await api.put('/api/novel/' + n.id + '/meta', {
+            banned_words: banned.value(), fingerprint: fp.value(),
+          });
           bs.close();
           toast('资料已保存', 'ok');
           haptic('success');
@@ -824,22 +1014,27 @@ window.MZBook = (function () {
     const hint = textField('画面要求（可留空）', '', { area: true, rows: 3,
       ph: '例如：雪夜城楼、主角提刀回头、冷蓝色调' });
     const style = textField('画风（可留空）', '', { ph: '例如：国漫插画 / 水墨 / 港漫质感' });
+    /* 预热：打开面板先让后端把提示词算好缓存住（约 12 秒），用户写要求的时间
+       正好把它吃掉；改完要求再预热一次。不花钱，失败也不打扰用户。 */
+    const prewarm = function () {
+      api.post('/api/novel/' + n.id + '/cover/prepare',
+        { hint: hint.value().trim(), style: style.value().trim() }, { timeout: 60000 })
+        .catch(function () {});
+    };
+    prewarm();
+    [hint, style].forEach(function (f) {
+      if (f && f.input && f.input.addEventListener) f.input.addEventListener('blur', prewarm);
+    });
     s.body.appendChild(h('div.small.muted.mb12', { text: '会按书名、简介、大纲、人物卡自动设计，并把书名和作者直接画在画面上。写点要求它更听话。' }));
     s.body.appendChild(hint.node);
     s.body.appendChild(style.node);
     s.body.appendChild(buttons([
-      { label: '开始画（约 30~90 秒）', tone: 'primary', onTap: async function () {
+      { label: '开始画（后台跑，画好自动出现）', tone: 'primary', onTap: async function () {
         const h2 = hint.value().trim(), st = style.value().trim();
         s.close();
-        const bs = busySheet('AI 正在画封面…');
-        try {
-          await api.post('/api/novel/' + n.id + '/cover', { hint: h2, style: st }, { timeout: 300000 });
-          bs.close();
-          toast('封面已生成：长按封面可以保存到相册', 'ok');
-          haptic('success');
-          await A.loadHero();
-          A.render();
-        } catch (e) { bs.close(); toast(e.message, 'bad'); }
+        /* 交给后台任务：图片模型 30~120 秒是常态，在这里干等会被 api.js 的
+           「超时换入口重发」坑成画两张、扣两次钱。底部任务条能看到进度。 */
+        await startOp('/api/novel/' + n.id + '/cover', '封面', { hint: h2, style: st, async: 1 });
       } },
     ]));
   }
