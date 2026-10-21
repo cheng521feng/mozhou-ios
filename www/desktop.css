@@ -13,14 +13,20 @@
      · 抽屉 / 弹窗收成屏幕正中的对话框
      · 鼠标专属：hover 浮起、悬停露出「⋯」、滚轮横滑、细滚动条、焦点环
 
-   只在窗口 >= 900px 生效；窄窗口自动回落手机那套，不改一行 JS。
+   只在「宽窗口 + 真鼠标 / 触控板」时生效：窄窗口、手机、平板一律回落手机那套，不改一行 JS。
+   2026-10-10：媒体查询加了 (hover:hover) and (pointer:fine)。光看宽度不够 —— 平板横屏
+   （小米平板 5 Pro 就是 1280x800 CSS 像素）宽度也过 900，之前等于把电脑版式套在触摸屏上，
+   左下还多一个「桌面版」入口。平板要的是平板那套（ipad.css），不是这套。
    手机端 www/ 与 ipa 里都没有本文件，一行都不受影响。
    ========================================================================== */
 
-/* 左栏品牌块只在电脑端那份 main.html 里；窄窗口不显示 */
+/* 左栏品牌块只在电脑端那份 main.html 里；窄窗口 / 触摸设备不显示 */
 .sb-brand { display: none; }
+/* 「桌面版」入口同理：不给触摸设备。它只在下面那条「真电脑端」的媒体查询里 display:block。
+   以前手机上留着一个没人管的裸 <a>（body 里流内元素，滚动时能露出来），现在先默认藏掉。 */
+.pc-link { display: none; }
 
-@media (min-width: 900px) {
+@media (min-width: 900px) and (hover: hover) and (pointer: fine) {
 
   /* ============================== 1. 外壳 ============================== */
   html, body { overflow: hidden; }
@@ -93,7 +99,6 @@
   }
   .nb-row { height: var(--nav-h); padding-top: 0; padding-bottom: 0; }
   .nb-action:hover { background: var(--accent-soft); }
-  .islanddock { margin: 4px 24px 6px; max-width: 640px; }
 
   /* ---------- 正文区 ---------- */
   .main {
@@ -219,15 +224,20 @@
   .pick-card:hover .pick-cover { box-shadow: 0 12px 26px -14px rgba(0, 0, 0, .48); }
 
   /* ============================== 5. 作品页 ============================== */
-  /* 左「书卡 + 全部操作」，右「前情摘要 + 章节」 */
+  /* 左「书卡 + 动作键」，右「页签 + 内容」。
+     按类放位置（别用 nth-child：页面里再插一块就全错位）。 */
   .pad:has(> .bk-head) {
     display: grid; grid-template-columns: 348px minmax(0, 1fr);
     gap: 22px 30px; align-items: start;
   }
-  .pad:has(> .bk-head) > *:nth-child(1) { grid-column: 1; grid-row: 1; }
-  .pad:has(> .bk-head) > *:nth-child(2) { grid-column: 1; grid-row: 2; }
-  .pad:has(> .bk-head) > *:nth-child(3) { grid-column: 2; grid-row: 1; }
-  .pad:has(> .bk-head) > *:nth-child(4) { grid-column: 2; grid-row: 2; }
+  .pad:has(> .bk-head) > .bk-head   { grid-column: 1; grid-row: 1; }
+  .pad:has(> .bk-head) > .bk-actbar { grid-column: 1; grid-row: 2; }
+  .pad:has(> .bk-head) > .bk-body   { grid-column: 2; grid-row: 1 / span 2; min-width: 0; }
+  .bk-body > .bk-tabs { margin-top: 0; }
+  /* 左栏那三个键改成卡片下面竖着一条（手机那套的 sticky 贴底在宽屏里不适用）。 */
+  .bk-actbar { position: static; margin: 0; padding: 0; background: none; border-top: 0; }
+  .bk-actbar .btn-row { flex-direction: column; }
+  .bk-actbar .btn { width: 100%; }
   .bk-head {
     flex-direction: column; gap: 14px;
     background: var(--panel); border-radius: var(--r-card);
@@ -300,12 +310,11 @@
   .rd-btn { cursor: pointer; }
   .rd-btn:hover:not([disabled]) { background: color-mix(in srgb, currentColor 10%, transparent); }
 
-  /* ============================== 10. 任务条 / 吐司 / 登录 ============================== */
-  /* 任务条挂到右下角（写作台里 --dock-bottom 会把它抬到工具条上面） */
-  .opsdock {
-    left: auto; right: 24px; bottom: var(--dock-bottom, 20px);
-    width: 420px; max-width: calc(100% - 264px);
-  }
+  /* ============================== 10. 实时状态 / 吐司 / 登录 ============================== */
+  /* 全局任务条（#opsDock）已下线：实时状态画在书架页顶部（.books-live）。
+     书架屏是个两列网格（左「今日进度」右「整理」，工具条另起一行），
+     所以这一块得显式占满一整行，别的几条才不会被挤到别的位置去。 */
+  div:has(> .books-grid) > .books-live { grid-column: 1 / -1; max-width: 820px; padding: 0 0 6px; }
   /* 吐司还是手机那样「底下居中」，只是居中在正文那一栏里 */
   .toasts { left: 216px; right: 0; bottom: 22px; }
   .toast { max-width: 420px; }
