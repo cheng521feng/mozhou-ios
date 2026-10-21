@@ -21,9 +21,10 @@
 <script>
 (function () {
   try {
-    var t = localStorage.getItem('mz_theme');
-    var light = (t === 'light') || ((t !== 'dark') && window.matchMedia
-      && window.matchMedia('(prefers-color-scheme: light)').matches);
+    // 默认跟随系统：没存过偏好就跟手机的深浅走，存过就按存的来。
+    var t = localStorage.getItem('mz_theme') || 'system';
+    var light = (t === 'light') || (t === 'system' && !!(window.matchMedia
+      && window.matchMedia('(prefers-color-scheme: light)').matches));
     if (light) document.documentElement.classList.add('light');
   } catch (e) { /* 忽略 */ }
 })();
@@ -33,8 +34,45 @@
 <div class="b"><div class="s"></div><div>正在打开墨舟…</div></div>
 <script>
   /* v6：登录页并入主界面（main.html），这里只做一次跳转，
-     老的 /m/index.html 书签、以及接口 401 后回退登录页的逻辑都还能用。 */
-  location.replace('main.html' + (location.search || ''));
+     老的 /m/index.html 书签、以及接口 401 后回退登录页的逻辑都还能用。
+
+     2026-10-10：iPad 之前也被送到「手机版式」（main.html），平板那套版式
+     （ipad.css 的左手竖栏 + 正文分栏）一直没被用上。现在按设备选：
+       · iPad（含 iPadOS 13 起 UA 报 Macintosh 的机型）→ ipad.html
+       · 安卓平板（小米 / 华为这些）                    → ipad.html
+       · 其余（iPhone / 安卓手机 / 电脑浏览器）         → main.html
+     怎么认 iPad 跟 app.js 里读安全区那段是同一套判断（真 Mac 的
+     maxTouchPoints 恒为 0，不会误伤）。
+     安卓平板不能只看 UA：小米 / 华为的平板 UA 有的带 Mobile、有的不带，
+     所以再看一眼屏幕最小边 —— 触摸设备里最小边 >= 600 的按平板算
+     （手机竖屏最长边也就 430 上下，横屏最小边一样很小，切得很干净）。
+
+     ipad.html 的接口只走云端那几个入口（api.js 的 CLOUDS_RAW）——
+     所以「本机墨舟服务」（局域网里拿 Safari 打开的那份）不给 iPad 换页：
+     那个场景要的是同源接口，换过去会把请求甩到云端、看不到本机书稿。
+     下面的云端域名清单与 api.js 的 CLOUDS_RAW 一一对应，改那边记得同步这里。 */
+  (function () {
+    var ua = navigator.userAgent || '';
+    var touch = (navigator.maxTouchPoints || 0) > 1;      /* iPadOS 报 Macintosh 那套用它 */
+    var anyTouch = (navigator.maxTouchPoints || 0) > 0;   /* 安卓这边只要「摸得到」就算，别卡在点数上 */
+    var small = Math.min(screen.width || 0, screen.height || 0);
+    var large = Math.max(screen.width || 0, screen.height || 0);
+    /* 2880 x 1308 一类超宽短横屏（Pura 90 Pro Max / SCA-AL00）最小边不足平板线，
+       但横向空间足够，必须进 ipad.html 的紧凑工作台版式，不能落到手机大标题版。 */
+    var wideShort = anyTouch && /Android/i.test(ua)
+      && large >= 940 && small >= 360 && large >= small * 1.5;
+    var tablet = /iPad/i.test(ua)
+      || (touch && /Macintosh/i.test(ua))
+      || (anyTouch && /Android/i.test(ua) && (small >= 600 || !/Mobile/i.test(ua)))
+      || wideShort;
+    var web = (location.protocol === 'http:' || location.protocol === 'https:');
+    var host = String(location.hostname || '').toLowerCase();
+    var cloud = (host === '47.101.72.16')
+      || (host === '47-101-72-16.sslip.io')
+      || /(^|\.)trycloudflare\.com$/.test(host);
+    var page = 'ipad.html';
+    location.replace(page + (location.search || ''));
+  })();
 </script>
 </body>
 </html>
