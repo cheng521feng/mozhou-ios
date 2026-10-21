@@ -54,7 +54,7 @@ jobs:
           },
           "ios": {
             "contentInset": "never",
-            "backgroundColor": "#0a0e15"
+            "backgroundColor": "#f2f1ee"
           }
         }
       FALLBACK_HTML: |
