@@ -1219,8 +1219,51 @@ window.MZ = (function () {
   }
   function getToken() { return token; }
 
+  /* 上传文件（multipart）。req() 只发 JSON；文风学习要选 TXT / PDF，走这条。
+     不手写 Content-Type，交给浏览器带 boundary。 */
+  async function postForm(path, fd, opts) {
+    opts = opts || {};
+    const init = { method: 'POST', body: fd, cache: 'no-store', headers: { 'Accept': 'application/json' } };
+    if (token) init.headers['X-Mozhou-Token'] = token;
+    Object.assign(init.headers, authHeaders());
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let timer = null;
+    const ms = opts.timeout || 300000;
+    if (ctrl) {
+      init.signal = ctrl.signal;
+      timer = setTimeout(function () { ctrl.abort(); }, ms);
+    }
+    let resp;
+    try {
+      await ready();
+      resp = await fetch(url(path), init);
+    } catch (e) {
+      if (timer) clearTimeout(timer);
+      MZ.online = false;
+      if (e && e.name === 'AbortError') throw new ApiError('超时：服务端 ' + Math.round(ms / 1000) + ' 秒内没有响应', -1);
+      throw new ApiError('连不上服务器：请换个网络（WiFi / 流量）再试', -2);
+    }
+    if (timer) clearTimeout(timer);
+    MZ.online = true;
+    let data = null;
+    const text = await resp.text();
+    if (text) { try { data = JSON.parse(text); } catch (e) { data = null; } }
+    if (resp.status === 401) {
+      setSession('');
+      if (!window.MZ_NO_401_REDIRECT && !/index\.html$/.test(location.pathname)) {
+        setTimeout(function () { location.replace('index.html'); }, 600);
+      }
+      throw new ApiError('登录已过期，请重新登录', 401);
+    }
+    if (!resp.ok || (data && data.ok === false)) {
+      const m = (data && (data.msg || data.message || data.error)) || ('请求失败（HTTP ' + resp.status + '）');
+      throw new ApiError(m, resp.status);
+    }
+    return data || {};
+  }
+
   return {
-    api: api, ApiError: ApiError, req: req, VERSION: VERSION,
+    api: api, ApiError: ApiError, req: req, postForm: postForm, VERSION: VERSION,
     h: h, frag: frag, add: add, clear: clear, $: $, $$: $$,
     icon: icon, brand: brand, ICONS: ICONS,
     haptic: haptic, toast: toast, sheet: sheet, actions: actions, modal: modal, confirm: confirm,
