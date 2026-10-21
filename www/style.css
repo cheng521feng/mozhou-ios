@@ -71,7 +71,7 @@ a { color: var(--accent); text-decoration: none; }
   --press: rgba(0, 0, 0, .045);
   --scrim: rgba(20, 20, 22, .38);
   --nav-bg: rgba(242, 241, 238, .82);
-  --tab-bg: rgba(242, 241, 238, .86);
+  --tab-bg: #f2f1ee;
   --toast-bg: rgba(255, 255, 255, .96);
   --toast-line: rgba(0, 0, 0, .08);
   --toast-ink: #1b1b1f;
@@ -111,7 +111,7 @@ a { color: var(--accent); text-decoration: none; }
   color-scheme: light;
 }
 
-/* 墨：深色（默认状态 —— 深墨黑底 + 薄荷绿，跟 App 图标同一支色） */
+/* 墨：深色（用户选「深色」时那套 —— 深墨黑底 + 薄荷绿，跟 App 图标同一支色） */
 html:not(.light) {
   --accent: #4ec9a0;
   --accent-ink: #04150f;
@@ -139,7 +139,7 @@ html:not(.light) {
   --press: rgba(255, 255, 255, .06);
   --scrim: rgba(0, 0, 0, .62);
   --nav-bg: rgba(12, 13, 15, .82);
-  --tab-bg: rgba(12, 13, 15, .86);
+  --tab-bg: #0c0d0f;
   --toast-bg: rgba(58, 62, 69, .96);
   --toast-line: rgba(255, 255, 255, .14);
   --toast-ink: #f4f5f7;
@@ -287,29 +287,9 @@ pre { padding: 10px 12px; overflow: auto; line-height: 1.55; }
 .navbar.no-large .nb-row { border-bottom: 0; }
 .navbar.scrolled .nb-large { display: none; }
 
-/* 灵动岛停靠条：有任务在跑时挂在顶上 */
-.islanddock {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  margin: 4px 14px 2px; padding: 7px 12px; max-width: calc(100% - 28px);
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: 999px; box-shadow: var(--sh-1);
-  font-size: 12.5px; text-align: left;
-}
-.islanddock .id-dot {
-  width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
-  flex: 0 0 auto; animation: pulse 1.6s ease-in-out infinite;
-}
-.islanddock .id-title { font-weight: 620; white-space: nowrap; }
-.islanddock .id-sub {
-  color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.islanddock .id-pct { margin-left: auto; color: var(--accent); font-weight: 650; font-variant-numeric: tabular-nums; }
-.islanddock .id-track {
-  position: absolute; left: 12px; right: 12px; bottom: 3px; height: 2px;
-  background: var(--bar-track); border-radius: 2px; overflow: hidden;
-}
-.islanddock { position: relative; }
-.islanddock .id-track i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s var(--ease); }
+/* 灵动岛停靠条（.islanddock / #islandDock）2026-10-13 已下线：
+   「正在跑什么」不再挂在导航栏顶上飘着，整块搬进了书架页顶部的「实时状态」
+   （见 app.js 的 booksLiveBox 与本文件的 .books-live / .books-ops）。 */
 .topline {
   position: fixed; top: 0; left: 0; height: 2px; width: 100%; z-index: 99;
   transform: scaleX(0); transform-origin: left center;
@@ -867,13 +847,45 @@ div.cover {
 .bk-tabs .seg button { padding: 8px 13px; }
 
 /* 底部动作条：写下一章 / 自动写到第N章 / 生成封面。
-   贴在滚动区下沿（.main 的底边在标签栏上方，所以按 --tab-h 让开它），
-   章节列表再长也不用一路滑到底才能接着写。 */
+   窄屏（手机、横放的小屏）没有左侧栏、底部有标签栏 —— 把它钉在标签栏正上方，
+   章节列表从它下面滑过去；最后一行由下面那条 .pad padding 让开，不会被压住。
+   以前这里是 sticky + bottom:--tab-h，而 .main 的 padding-bottom 已经让开了标签栏，
+   两边一叠加，动作条就停在列表中间（离标签栏还差 90px），看着像浮在半空。 */
 .bk-actbar {
   position: sticky; z-index: 11; bottom: calc(var(--tab-h) + 8px);
   margin: 18px -16px 0; padding: 10px 16px 12px;
   background: var(--bg);
   border-top: 1px solid var(--line-soft);
+}
+/* 手机：正好落在标签栏上沿（iPad / 桌面在左栏里是静态的，见 ipad.css / desktop.css）。
+   .main 的 padding-bottom 已经是「--tab-h + 28px」（给标签栏让位），而 sticky 只认内容盒下沿，
+   所以要往回压 28px 才落在标签栏上沿；原来的 --tab-h + 8px 等于又让了一次，动作条就浮在半空。 */
+/* 宽到 899px 为止是给桌面留门：900px 起是 desktop.css 的地盘（动作条在左栏里） */
+@media (max-width: 699px), (max-height: 499px) and (max-width: 899px) {
+  .bk-actbar { bottom: -28px; }
+  /* 动作条压在列表上，给它腾出高度：滑到底时最后一行停在它上面 */
+  .pad:has(> .bk-actbar) { padding-bottom: 140px; }
+}
+/* 窄 iPhone：三个动作换成 2 + 1，最后一个拉满整行，别留半截空位 */
+@media (max-width: 399px) {
+  .bk-actbar .btn-row {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+  }
+  .bk-actbar .btn-row .btn { width: 100%; min-width: 0; }
+  .bk-actbar .btn-row .btn:last-child { grid-column: 1 / -1; }
+}
+/* 短屏 iPhone：首屏把标题 / 今日条 / 搜索筛选收紧一点，封面下面那行信息别全被底栏吃掉 */
+@media (max-width: 699px) and (max-height: 720px) {
+  .nb-large { font-size: 26px; margin: 0 16px 6px; }
+  .today-strip { padding: 9px 16px 2px; }
+  .today-strip .ts-num { font-size: 20px; }
+  .today-strip .ts-bar { margin-top: 6px; }
+  .books-head { padding: 7px 16px; }
+  .bk-tools { gap: 8px; padding: 8px 16px 3px; }
+  .bk-search { height: 38px; padding-top: 8px; padding-bottom: 8px; font-size: 14px; }
+  .bk-filter { gap: 6px; }
+  .bk-filter .chip { height: 34px; padding: 0 10px; font-size: 12px; }
+  .books-grid { gap: 14px 10px; padding-top: 10px; }
 }
 .bk-actbar .btn-row { margin-top: 0; }
 .bk-actbar .btn { min-width: 0; flex: 1 1 auto; }
@@ -1215,30 +1227,82 @@ body.ed-immersive .main { padding-bottom: calc(20px + var(--safe-b)); }
 .jt { font-size: 14.5px; font-weight: 600; }
 .lt { color: var(--muted); }
 
-/* 全局任务条（去哪个页面都不丢） */
-.opsdock {
-  position: fixed; z-index: 60;
-  left: 12px; right: 12px;
-  /* 写作台会把 --dock-bottom 设成「工具条高度 + 安全区 + 12」，任务条自动抬起来不压工具条 */
-  bottom: var(--dock-bottom, calc(var(--tab-h) + var(--safe-b) + 10px));
-  background: var(--panel); border-radius: 16px; box-shadow: var(--sh-2);
-  overflow: hidden; border: 1px solid var(--line-soft);
+/* ============================== 书架页「实时状态」 ============================== */
+/* 全局任务条（#opsDock）2026-10-13 已下线。它和灵动岛条一起飘在内容上面，
+   手机上顶一条底一条太挤；现在整块落在书架页顶部（书架就是首页），跟正文一起滚。
+
+   2026-10-13 再收一版：原来是 .live-hero（76px 进度环 + 阶段 + 模型队列 +
+   每本书 + 运行日志），手机上要占大半屏，书架被顶到下面去了。现在收成一张
+   紧凑卡（.lv），四行以内：
+     ① ● 正在写《书名》                     62%  [停止全部]
+     ② ▓▓▓▓▓▓░░░░░░░░（4px 总进度条）
+     ③ 8/13 章 · 已用时 15:00 · 模型 2 路在跑 · 排队 1
+     ④ 每本书一行（.lv-bk）；每项任务一行（.bl-row）；运行日志默认折叠。
+   手机上大约 90~150px 高。iPad / 电脑是同一份 DOM，只是那一栏更宽。 */
+.books-live { margin: 8px 0 2px; }
+.lv {
+  background: var(--panel); border-radius: var(--r-card); padding: 11px 13px 12px;
+  box-shadow: var(--sh-1); border-left: 3px solid var(--accent);
 }
-.od-top {
-  display: flex; align-items: center; gap: 9px; width: 100%;
-  padding: 11px 14px; text-align: left; font-size: 13.5px;
+.lv-top { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.lv-title {
+  font-size: 14px; font-weight: 620; flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.od-title { font-weight: 620; }
-.od-sub { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.od-pct { margin-left: auto; font-weight: 650; color: var(--accent); font-variant-numeric: tabular-nums; }
-.od-chev { color: var(--muted); font-size: 13px; }
-.od-track { height: 2.5px; background: var(--bar-track); }
-.od-track i { display: block; height: 100%; background: var(--accent); transition: width .4s var(--ease); }
-.od-body { padding: 12px 14px 14px; }
-.od-r1 { display: flex; align-items: center; gap: 10px; font-size: 13px; }
-.od-s { font-size: 11.5px; color: var(--muted); }
-.od-t { font-weight: 600; }
-.od-ic { width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: 0 0 auto; }
+.lv-top > .sp { flex: 1 1 auto; }
+.lv-pct { flex: 0 0 auto; }
+.lv-top > .bh-btn { height: 30px; padding: 0 11px; font-size: 12.5px; flex: 0 0 auto; }
+.lv-prog .bar { height: 4px; }
+.lv-meta {
+  display: flex; flex-wrap: wrap; gap: 3px 6px; margin-top: 7px;
+  font-size: 11.5px; color: var(--muted); line-height: 1.5;
+}
+.lv-meta > span { white-space: nowrap; }
+.lv-meta > span + span::before { content: '\00b7'; margin-right: 6px; color: var(--dim); }
+.lv-bks { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
+.lv-bk-r { display: flex; align-items: baseline; gap: 7px; font-size: 12.5px; min-width: 0; }
+.lv-bk-t {
+  font-weight: 600; flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lv-bk-s {
+  color: var(--muted); font-size: 11.5px; flex: 1 1 0; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lv-bk-n { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.lv-bk > .bar { height: 3px; margin-top: 5px; }
+.lv-log { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+.lv-log-b { background: none; border: 0; padding: 0; color: var(--muted); font-size: 11.5px; cursor: pointer; }
+.lv-log-b::after { content: ' \25be'; color: var(--dim); }
+.lv-log-b.on::after { content: ' \25b4'; }
+.lv-ev > .ev-list { margin-top: 9px; }
+
+/* 具体哪几项在跑：一项两行（标题行 + 细进度条），控制在 40 多像素 */
+.books-ops { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
+.bl-row {
+  background: var(--panel3); border: 1px solid transparent; border-radius: 11px;
+  padding: 8px 11px; display: flex; flex-direction: column; gap: 6px;
+}
+.bl-row > .bar { height: 3px; }
+.bl-r1 { display: flex; align-items: center; gap: 8px; font-size: 12.5px; min-width: 0; }
+.bl-ic {
+  width: 17px; height: 17px; border-radius: 999px; flex: 0 0 auto;
+  display: grid; place-items: center; font-size: 10px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.bl-t {
+  font-weight: 620; flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bl-s {
+  font-size: 11px; color: var(--muted); flex: 1 1 0; min-width: 0; text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bl-p { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.bl-row.run .bl-ic { animation: pulse 1.6s ease-in-out infinite; }
+.bl-row.bad { border-color: rgba(214, 76, 62, .4); }
+.bl-row.bad .bl-ic { background: rgba(214, 76, 62, .16); color: var(--red); }
+.bl-row.bad .bar-fill { background: var(--red); }
 
 /* ============================== 动效 ============================== */
 .rise { animation: rise .42s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 42ms); }
@@ -1351,6 +1415,47 @@ html.light .li-ico.mk-deepseek { background: rgba(77, 107, 254, .12); color: #40
   padding: calc(var(--safe-t) + 54px) 0 calc(var(--safe-b) + 40px);
 }
 .rd-page { max-width: 700px; margin: 0 auto; padding: 0 22px; }
+
+/* 仿真翻页：正文按栏切成页，整条纸面向左平移；翻页时再叠一张纸做 3D 翻动。
+   --rd-page-step 由 reader.js 按实际内容宽写进来，保证每一栏刚好是一屏。 */
+.rd-flip .rd-view {
+  position: relative; overflow: hidden; touch-action: none;
+  perspective: 1800px; perspective-origin: 32% 50%;
+  -webkit-user-select: none; user-select: none;
+}
+.rd-flip .rd-page {
+  width: 100%; max-width: none; height: 100%;
+  --rd-measure: 700px;
+  padding-left: max(22px, calc((100% - var(--rd-measure)) / 2));
+  padding-right: max(22px, calc((100% - var(--rd-measure)) / 2));
+  column-width: var(--rd-page-step, 320px); column-gap: var(--rd-col-gap, 44px);
+  column-fill: auto;
+  transform-style: preserve-3d; will-change: transform;
+}
+.rd-leaf {
+  position: absolute; z-index: 24; overflow: hidden; pointer-events: none;
+  background: var(--rd-bg, #f7f6f2);
+  transform-origin: left center; backface-visibility: hidden;
+  box-shadow: 12px 8px 32px -12px rgba(0, 0, 0, .38);
+  will-change: transform, opacity;
+}
+.rd-leaf::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(0,0,0,.13), rgba(0,0,0,0) 18%,
+    rgba(255,255,255,.08) 72%, rgba(0,0,0,.06));
+}
+.rd-leaf-next { animation: rdLeafNext .46s cubic-bezier(.2, .72, .22, 1) forwards; }
+.rd-leaf-prev { animation: rdLeafPrev .46s cubic-bezier(.2, .72, .22, 1) both; }
+@keyframes rdLeafNext {
+  0% { transform: rotateY(0deg); opacity: 1; }
+  68% { opacity: 1; }
+  100% { transform: rotateY(-96deg); opacity: 0; }
+}
+@keyframes rdLeafPrev {
+  0% { transform: rotateY(-96deg); opacity: 0; }
+  32% { opacity: 1; }
+  100% { transform: rotateY(0deg); opacity: 1; }
+}
 .rd-chhead { padding: 2px 0 20px; }
 .rd-chtitle {
   font-family: var(--sans); font-size: 12px; letter-spacing: .16em;
