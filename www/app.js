@@ -223,9 +223,9 @@ window.MZApp = (function () {
     });
   }
 
-  /* ============================== 评分 / 面板 ============================== */
+  /* ============================== 质检面板 ============================== */
   const MZUI = {
-    /* toneVar 传了就用它（进度环用 var(--accent)），不传就按分数自动上色（质检/爆款环） */
+    /* toneVar 传了就用它（进度环用 var(--accent)），不传就按分数自动上色（质检环） */
     ring(score, label, size, toneVar) {
       const n = Number(score);
       const v = score === null || score === undefined || isNaN(n) ? null : Math.max(0, Math.min(100, n));
@@ -258,6 +258,30 @@ window.MZApp = (function () {
         l.appendChild(li({ title: it[0], sub: it[2], right: h('span.num', { text: txt(it[1]) }) }));
       });
       box.appendChild(l);
+      /* 拟人度：把「像不像人写的」从 1 个分数拆成 3 个能下手改的指标（跟桌面端写作台同一口径）。
+         起伏系数越大越像人；句句一样长、段段一样长就是模板味。
+         这三个字段是后端 2.9.46 才加的：老后端不返回（undefined）时整块不出现，
+         免得显示成一片 0.00 像坏了。 */
+      const sv = m.sentence_var, pv = m.para_len_var, ph = m.ai_phrase_hits;
+      if (sv !== undefined || pv !== undefined || ph !== undefined) {
+        const hu = function (v) {
+          return (v === undefined || v === null || v === 0) ? '—' : (typeof v === 'number' ? v.toFixed(2) : String(v));
+        };
+        const num = function (v, bad) {
+          return h('span.num', bad ? { text: String(v), style: { color: 'var(--amber)' } } : { text: String(v) });
+        };
+        box.appendChild(h('div.section-title.mt16', null,
+          h('span', { text: '拟人度' }), h('span.sp', { text: '为什么读着像 AI' })));
+        const hl = h('div.list');
+        hl.appendChild(li({ title: '句长起伏', sub: '越大越像人；低于 0.45 ＝ 句子长短一样',
+          right: num(hu(sv), sv > 0 && sv < 0.45) }));
+        hl.appendChild(li({ title: '段落起伏', sub: '越大越像人；低于 0.5 ＝ 段落长短一样',
+          right: num(hu(pv), pv > 0 && pv < 0.5) }));
+        hl.appendChild(li({ title: '句式模板命中', sub: '「不是…而是 / 三连排比 / 总结句」这类套路，越少越像人',
+          right: num(ph === undefined ? '—' : ph, ph > 2) }));
+        box.appendChild(hl);
+        box.appendChild(h('div.footnote', { text: '起伏系数越大越像人写的；偏低＝句子 / 段落一样长，读着像模板。这三项不进上面的质检分，只告诉你从哪儿下手改。' }));
+      }
       return box;
     },
     issueList(issues) {
@@ -273,103 +297,7 @@ window.MZApp = (function () {
       if (!(issues || []).length) l.appendChild(li({ title: '没有发现问题', sub: '可以先跑一次质检' }));
       return l;
     },
-    hitPanel(agg, opts) {
-      const box = h('div');
-      if (!agg) {
-        box.appendChild(emptyBox('target', '还没有爆款评分', '点「评分本章」让多个模型打分（约 10~40 秒）'));
-        if (opts && opts.actions) box.appendChild(h('div.mt12', null, opts.actions));
-        return box;
-      }
-      if (agg.ok === false) {
-        box.appendChild(emptyBox('bolt', '评分失败', agg.msg || '模型没有返回可用结果'));
-        if (opts && opts.actions) box.appendChild(h('div.mt12', null, opts.actions));
-        return box;
-      }
-      box.appendChild(h('div.row', { style: { gap: '14px', alignItems: 'center' } },
-        MZUI.ring(agg.hit_score, '爆款分'),
-        h('div.flex1', null,
-          h('div.row.wrap', { style: { gap: '6px' } },
-            chip('爆款率 ' + (agg.viral_rate === null || agg.viral_rate === undefined ? '—' : Math.round(agg.viral_rate) + '%'), 'blue', 'fire'),
-            chip('一致性 ' + (agg.agreement || 0) + '%', (agg.agreement >= 70 ? 'ok' : 'warn'), 'layers'),
-            chip((agg.labels ? Object.keys(agg.labels).length : agg.count || 0) + ' 个模型', '', 'spark')),
-          agg.verdict ? h('div.small.muted.mt8', { text: agg.verdict }) : null)));
-      if (opts && opts.actions) box.appendChild(h('div.mt12', null, opts.actions));
-      if (agg.top_fix) {
-        box.appendChild(h('div.card.tight.mt12', null,
-          h('div.small', { style: { color: 'var(--accent)', fontWeight: '600' } }, '只改一处 → 最该改这里'),
-          h('div.mt8.pre-wrap', { text: agg.top_fix })));
-      }
-      if (agg.dims && agg.dims.length) {
-        const dl = h('div.mt12');
-        dl.appendChild(h('div.small.muted.mb8', { text: '十个维度（多模型取中位）' }));
-        agg.dims.forEach(function (d) {
-          const v = d.score;
-          dl.appendChild(h('div.dim-row', null,
-            h('span.dn', { text: d.name || d.key }),
-            barOf(v === null || v === undefined ? 0 : v),
-            h('span.dv.num', { text: v === null || v === undefined ? '—' : String(Math.round(v)) })));
-        });
-        box.appendChild(dl);
-      }
-      const issues = agg.issues || [];
-      if (issues.length) {
-        box.appendChild(h('div.small.muted.mt16.mb8', { text: '问题清单（带「共识」＝多个模型都提到）' }));
-        const l = h('div.list');
-        issues.forEach(function (it) {
-          l.appendChild(li({
-            ico: 'bolt',
-            title: (it.dim_name ? '【' + it.dim_name + '】' : '') + (it.problem || it.advice || ''),
-            sub: it.advice && it.advice !== it.problem ? '改法：' + it.advice : '',
-            right: it.consensus ? chip('共识', 'bad', 'fire') : null,
-          }));
-        });
-        box.appendChild(l);
-      }
-      if (agg.strengths && agg.strengths.length) {
-        box.appendChild(h('div.small.muted.mt16.mb8', { text: '值得保留的优点' }));
-        const l = h('div.list');
-        agg.strengths.forEach(function (s) { l.appendChild(li({ ico: 'check', title: s.text || '', right: s.consensus ? chip('共识', 'ok') : null })); });
-        box.appendChild(l);
-      }
-      if (agg.per_model) {
-        box.appendChild(h('div.small.muted.mt16.mb8', { text: '各模型自己的分' }));
-        const l = h('div.list');
-        Object.keys(agg.per_model).forEach(function (p) {
-          const pm = agg.per_model[p] || {};
-          l.appendChild(li({ title: (agg.labels && agg.labels[p]) || p, right: h('span.num', { text: txt(pm.hit_score) }) }));
-        });
-        box.appendChild(l);
-      }
-      if (agg.failed && Object.keys(agg.failed).length) box.appendChild(h('div.footnote', { text: '失败模型：' + Object.keys(agg.failed).join('、') }));
-      return box;
-    },
   };
-
-  /* 把「多模型诊断」翻成一条能直接执行的改写指令。
-     只说 top_fix 太笼统，模型容易越改越平；这里把首要修改、拖后腿的维度、
-     各模型的看法和具体改法一起说清楚，并锁死「不许改剧情、不许变短」。 */
-  function hitFixInstruction(agg, retry) {
-    agg = agg || {};
-    const advs = (agg.issues || []).map(function (i) { return i.advice; }).filter(Boolean).slice(0, 4);
-    const weak = (agg.dims || []).filter(function (d) { return d.score !== null && d.score !== undefined && d.score < 62; })
-      .sort(function (a, b) { return (a.score - b.score) || ((b.weight || 0) - (a.weight || 0)); }).slice(0, 4)
-      .map(function (d) { return (d.name || d.key) + ' ' + d.score + ' 分'; });
-    const pm = Object.keys(agg.per_model || {}).map(function (k) {
-      const v = agg.per_model[k] || {};
-      const one = (v.issues || [])[0];
-      const t = (one && (one.problem || one.advice)) || v.top_fix || '';
-      return t ? (((agg.labels || {})[k] || k) + '：' + t) : '';
-    }).filter(Boolean).slice(0, 3);
-    return [
-      '只改这一段：剧情走向、人物关系、时间线都不能变，改完必须和前后文无缝衔接。',
-      agg.top_fix ? ('首要修改：' + agg.top_fix) : '',
-      weak.length ? ('这次评分里最拖后腿的是：' + weak.join('；') + '。请针对这几项把细节写实、把张力写出来，不要靠压字数省事。') : '',
-      pm.length ? ('各模型的看法：' + pm.join('；')) : '',
-      advs.length ? ('其他建议：' + advs.join('；')) : '',
-      retry ? '上一轮改完复评反而更低：这次把上面的建议逐条落到具体动作、对话和细节上，不要动剧情，也不要比原文短。' : '',
-      '硬性：改完字数不得少于原文、段落数不得减少，不要出现「然而/仿佛/不禁/缓缓/微微/瞬间」这类 AI 腔词。',
-    ].filter(Boolean).join(' ');
-  }
 
   /* ============================== 实时进度组件 ==============================
      数据来自 /api/live：
@@ -696,6 +624,23 @@ window.MZApp = (function () {
     return state.hero;
   }
   async function ensureHero() { if (!state.hydrated) await loadHero(); return state.hero; }
+  /* 拉总览的「软失败」版：云端不通时别把异常抛给 render —— 那样整页会被换成
+     「加载失败」，用户以为 App 坏了。桌面端（work/mozhou/static/app.js 的 route()）就是
+     「try 包住渲染，失败只弹一条提示，界面照旧」，这里跟它对齐。
+     返回 null = 成功；返回错误对象 = 失败（401 顺手弹登录卡，和以前一样）。 */
+  async function ensureHeroSoft() {
+    try { await ensureHero(); return null; }
+    catch (e) { if (e && e.code === 401) showLogin(e); return e || new Error('连不上云端'); }
+  }
+  /* 云端读不到时的兜底块：一句人话 + 重试。不白屏，也不整页报错。 */
+  function cloudDownBox(err, title) {
+    const box = h('div.pad');
+    box.appendChild(emptyBox('cloud', title || '读不到云端',
+      (err && err.message) || '网络或云端入口不通。书稿都在云端，恢复后点「重试」。'));
+    box.appendChild(buttons([{ label: '重试', tone: 'primary',
+      onTap: function () { haptic('light'); render(); } }]));
+    return box;
+  }
   /* 个人资料（用户名/性别/年龄/头像）。读不到不影响主流程，只是"我的"页少张卡。 */
   async function loadProfile() {
     try {
@@ -743,7 +688,11 @@ window.MZApp = (function () {
     const w = Number(words) || 0;
     const extra = Math.ceil(Math.max(0, w - base) / 100) * per;
     const st = (state.hero && state.hero.settings) || {};
-    const sel = String(st.selected_models || 'deepseek').split(/[,\s;、，]+/).filter(Boolean);
+    /* 系数按后端算好的「本次真正会用哪几个模型」取，别写死 DeepSeek ——
+       selected_models 没配时后端会退到「所有已配 Key 的模型」，写死就会报错价 */
+    const sel = (st.effective_models && st.effective_models.length)
+      ? st.effective_models.slice()
+      : String(st.selected_models || '').split(/[,\s;、，]+/).filter(Boolean);
     const coefs = pr.models || {};
     let coef = 1;
     sel.forEach(function (m) { const c = Number(coefs[m]); if (c && c > coef) coef = c; });
@@ -766,7 +715,7 @@ window.MZApp = (function () {
     { key: 'updated', label: '最近更新' },
     { key: 'chars', label: '字数' },
     { key: 'chapters', label: '章节' },
-    { key: 'score', label: '评分' },
+    { key: 'score', label: '质检分' },
     { key: 'title', label: '书名' },
   ];
   const BOOK_FILTERS = [
@@ -840,13 +789,173 @@ window.MZApp = (function () {
     return filterBooks(searchBooks(sortBooks(state.novels, booksView.sort), booksView.q), booksView.filter);
   }
 
+  /* ============================== 书架页的「实时状态」 ==============================
+     以前「正在跑什么」画在两个浮动元素上（导航栏里的灵动岛条 #islandDock +
+     body 级的全局任务条 #opsDock）。它们不属于任何一屏、切页不丢，代价是一直压在
+     内容上。现在整块搬进书架页顶部（书架就是首页）：
+
+       · 总进度卡（总进度环 + 当前书 / 第几章 / 阶段 + 模型队列 + 每本书的进度）
+       · 具体哪几项在跑（含按钮刚按下、服务端还没露面的本地占位），带进度条
+
+     数据全部来自 /api/live（+ 本地占位），两端同一份：手机 / 平板 / 电脑看到的一样。
+     render() 挂上去一次，之后由 paintBooksLive() 原地重画 —— 不整页重画，滚动不跳。 */
+  let booksLive = null;
+  function paintBooksLive() {
+    if (!booksLive || !booksLive.node || !booksLive.node.isConnected) return;
+    booksLive.paint();
+  }
+  /* 一项任务一行：图标 + 标题 + 右侧阶段 + 百分比，下面一条细进度条。
+     2026-10-13 紧凑化：以前一项是「标题行 + 阶段行 + 进度条」三行 80 多像素，
+     现在阶段挤进标题行（放不下就省略号截断），一项只占两行。 */
+  function opsListNode(list) {
+    const box = h('div.books-ops');
+    list.forEach(function (o) {
+      const row = h('div.bl-row' + (o.finished ? (o.ok ? '.ok' : '.bad') : '.run'),
+        { 'data-k': o.key || '' });
+      row.appendChild(h('div.bl-r1', null,
+        h('span.bl-ic', { text: o.finished ? (o.ok ? '✓' : '!') : '●' }),
+        h('b.bl-t', { text: o.title || '' }),
+        h('span.bl-s', { text: opStage(o) }),
+        h('span.bl-p', { text: o.pct ? (Math.round(o.pct) + '%') : '' })));
+      row.appendChild(barOf(o.pct || 0, (o.finished && !o.ok) ? 'bad' : ''));
+      box.appendChild(row);
+    });
+    return box;
+  }
+  /* 一项任务的「一句话阶段」：优先服务端给的阶段，其次第几步；都没了就「正在准备…」 */
+  function opStage(o) {
+    const bits = [];
+    if (o.phase) bits.push(o.phase);
+    if (o.steps && o.steps.length) {
+      bits.push('第 ' + Math.min((o.step || 0) + 1, o.steps.length) + '/' + o.steps.length + ' 步');
+    }
+    if (o.error) bits.push(String(o.error).slice(0, 40));
+    else if (o.note) bits.push(o.note);
+    return bits.join(' · ') || (o.finished ? '' : '正在准备…');
+  }
+  /* 正在跑的是哪几个模型：服务端的队列标签就是「模型名·用途」（DeepSeek·写作 / MiMo·审查…），
+     直接把这些名字写进卡片，用户才能一眼对上「我勾的模型到底在不在跑」——
+     2026-10-13 之前这里只有一句「模型 2 路在跑」，看不出是谁；用户报「状态卡不跟我选的模型走」。 */
+  function lvModels(q) {
+    const out = [];
+    (q.running || []).forEach(function (r) {
+      const l = qLabel(r);
+      if (l && out.indexOf(l) < 0) out.push(l);
+    });
+    if (!out.length && q.current) {
+      const l = qLabel(q.current);
+      if (l && out.indexOf(l) < 0) out.push(l);
+    }
+    return out;
+  }
+  /* 每本书一行：书名 +（第几章 / 阶段）+ n/m 章 + 一条细进度条 */
+  function lvBooks(live) {
+    const books = live.books || [];
+    if (!books.length) return null;
+    const box = h('div.lv-bks');
+    books.forEach(function (b, i) {
+      const bp = (b.pct === undefined || b.pct === null)
+        ? (b.need ? ((b.done || 0) / b.need) * 100 : 0)
+        : creepPct(b.pct, b.rate, (b.done || 0) < (b.need || 0));
+      const on = !b.failed && (b.done || 0) < (b.need || 0);
+      const where = b.phase || (b.current_idx ? ('第 ' + b.current_idx + ' 章') : '');
+      const row = h('div.lv-bk' + (on ? '.on' : '') + (b.failed ? '.bad' : ''), { 'data-i': i });
+      row.appendChild(h('div.lv-bk-r', null,
+        h('span.lv-bk-t', { text: '《' + (b.title || '未命名') + '》' }),
+        where ? h('span.lv-bk-s', { text: where }) : null,
+        h('span.sp'),
+        h('span.lv-bk-n', { text: (b.done || 0) + '/' + (b.need || 0) })));
+      row.appendChild(barOf(bp, b.failed ? 'bad' : ''));
+      box.appendChild(row);
+    });
+    return box;
+  }
+  /* 书架页顶部的「实时状态」：一张卡，四行以内。
+     以前用的是 liveHero（76px 进度环 + 阶段 + 模型队列 + 每本书 + 运行日志），
+     手机上打开 App 第一眼就是一整屏进度，书架被顶到下面去了。
+     2026-10-13 重新设计 —— 单行标题 + 一条总进度 + 一行小结（章数 / 用时 / 队列）
+     + 每本书一行 + 每项任务一行，运行日志默认折叠（点一下才展开）。
+     手机上大约 90~150px 高；iPad / 电脑是同一份 DOM，只是那一栏更宽。 */
+  function liveCompact(live, ops) {
+    live = live || {};
+    ops = ops || [];
+    const pct = creepPct(live.pct, live.rate, !!live.running);
+    const q = live.queue || {};
+    const qn = q.active || (q.running || []).length || 0;
+    const qw = q.queued || (q.waiting || []).length || 0;
+    const box = h('div.lv');
+    box.appendChild(h('div.lv-top', null,
+      h('span.live-dot'),
+      h('span.lv-title', { text: live.job_title || (live.running ? '正在写作' : '任务进行中') }),
+      h('span.sp'),
+      h('span.chip' + (live.running ? '.ok' : '') + '.lv-pct', null,
+        h('span', { text: Math.round(pct) + '%' })),
+      miniBtn('停止全部', 'danger', function () { stopAll(); })));
+    box.appendChild(h('div.lv-prog.mt8', null, barOf(pct, live.running ? '' : 'ok')));
+    const meta = h('div.lv-meta');
+    if (!(live.books || []).length && live.phase) meta.appendChild(h('span', { text: live.phase }));
+    if (live.total) meta.appendChild(h('span', { text: (live.done || 0) + '/' + live.total + ' 章' }));
+    if (live.elapsed) meta.appendChild(h('span.lv-time', { text: '已用时 ' + fmtDur(live.elapsed) }));
+    const names = lvModels(q);
+    if (names.length) {
+      const show = names.length > 2
+        ? (names.slice(0, 2).join(' · ') + ' +' + (names.length - 2)) : names.join(' · ');
+      meta.appendChild(h('span.lv-who', { text: show }));
+    } else if (qn) {
+      meta.appendChild(h('span', { text: '模型 ' + qn + ' 路在跑' }));
+    }
+    if (qw) meta.appendChild(h('span', { text: '排队 ' + qw }));
+    if (meta.children.length) box.appendChild(meta);
+    const bks = lvBooks(live);
+    if (bks) box.appendChild(bks);
+    if (ops.length) box.appendChild(opsListNode(ops));
+    const ev = eventsNode(live, 6);
+    if (ev) {
+      const btn = h('button.lv-log-b', { type: 'button', text: '运行日志' });
+      const panel = h('div.lv-ev', { hidden: true }, ev);
+      btn.addEventListener('click', function () {
+        haptic('light');
+        panel.hidden = !panel.hidden;
+        btn.classList.toggle('on', !panel.hidden);
+      });
+      box.appendChild(h('div.lv-log', null, btn, panel));
+    }
+    return box;
+  }
+  function booksLiveBox() {
+    const node = h('div.books-live');
+    const box = {
+      node: node,
+      paint: function () {
+        const live = state.live || {};
+        const busy = liveBusy(live);
+        const ops = opsAll();
+        clear(node);
+        if (!busy && !ops.length) { node.hidden = true; return; }
+        node.hidden = false;
+        /* 还在跑才画「正在写什么」那张卡；只剩收尾条目时只列条目，别硬撑一张 0% 的卡 */
+        if (busy) node.appendChild(liveCompact(live, ops));
+        else node.appendChild(opsListNode(ops));
+      },
+    };
+    box.paint();
+    return box;
+  }
+
   screens.books = function () {
     return {
       title: '书架',
       action: { label: '新建', onTap: function () { newNovelMenu(); } },
       async mount() {
-        const d = await ensureHero();
         const out = h('div');
+        /* 书架本来就是云端那份：读不到就给「重试」，别整页变成加载失败。 */
+        const heroErr = await ensureHeroSoft();
+        if (heroErr && !state.novels.length) {
+          toast(heroErr.message || '连不上云端', 'bad');
+          out.appendChild(cloudDownBox(heroErr, '读不到云端书架'));
+          return out;
+        }
+        const d = state.hero || {};
         if (!state.novels.length) {
           booksSel.mode = false; booksSel.ids = {};
           const em = emptyBox('books', '书架是空的',
@@ -919,6 +1028,11 @@ window.MZApp = (function () {
         }
         head.appendChild(tools);
 
+        /* 实时状态：以前它飘在屏幕顶上 / 底下（灵动岛条 + 全局任务条），
+           现在整块搬进书架页顶部 —— 打开 App 第一眼就是书架，「正在写什么 /
+           写到第几章 / 还有几项在跑」跟着书一起看，不再压着内容。 */
+        booksLive = booksLiveBox();
+        out.appendChild(booksLive.node);
         if (!booksSel.mode) out.appendChild(todayStrip(d));
         out.appendChild(head);
         out.appendChild(booksTools(paint));
@@ -1217,14 +1331,6 @@ window.MZApp = (function () {
         { op: '重写《' + book + '》' + cnt + ' 章', match: '^重写《' + reEsc(book) + '》' });
     });
   }
-  async function bookHitReview(n) {
-    const ok = await confirm('对《' + (n.title || '') + '》做全书爆款体检？会按抽样方式让多个模型评分，耗时较长。',
-      { okText: '开始体检' });
-    if (!ok) return;
-    const book = n.title || '';
-    startJob('/api/novel/' + n.id + '/hit_review', '体检完成', { scope: 'sample' },
-      { timeout: 300000, op: '爆款质检《' + book + '》', match: '^爆款质检《' + reEsc(book) + '》' });
-  }
   async function exportNovel(n) {
     toast('正在导出…');
     try {
@@ -1242,6 +1348,7 @@ window.MZApp = (function () {
     actions([
       { label: '选频道类型，AI 写大纲', icon: 'spark', sub: '男频 / 女频 · 选好类型，AI 出简介·大纲·人物，满意再建书', onPick: function () { newNovel(); } },
       { label: '粘贴整本书导入', icon: 'file', sub: '按「第 N 章」自动切章，适合搬已经写完的稿子', onPick: function () { importNovel(); } },
+      { label: '导入文本学文风', icon: 'spark', sub: '选 TXT / PDF 学一份写作风格（只有采样片段会交给 AI）', onPick: function () { if (window.MZStyle) window.MZStyle.importSheet(); } },
     ], { title: '新建作品' });
   }
 
@@ -1457,50 +1564,22 @@ window.MZApp = (function () {
     } catch (e) { toast(e.message, 'bad'); }
   }
 
-  /* ============================== 全局任务条（#opsDock） ==============================
-     服务端会给每个长操作登记一条 ops（第几步 / 什么阶段 / 已用时 / 模型排队），
-     这里把它画成挂在 body 上的 fixed 任务条。因为它不属于任何一屏的 DOM，
-     所以切标签页、翻页、开关写作台、甚至重开 App 都不会把进度弄丢。
+  /* ============================== 长操作状态（本地占位 + 服务端 ops） ==============================
+     服务端会给每个长操作登记一条 ops（第几步 / 什么阶段 / 已用时 / 模型排队）。
+     以前这里把它画成挂在 body 上的 fixed「全局任务条」（#opsDock），导航栏里还有一条
+     灵动岛停靠条（#islandDock）—— 两条都飘在内容上，手机屏幕本来就小，顶一条底一条，
+     连书名都挡。2026-10-13 起两条一起下线，改由书架页顶部的「实时状态」块来画
+     （见 booksLiveBox / paintBooksLive）：状态跟正文一起滚，不再压着内容。
 
-     这一版把状态机补全，专治五个体感毛病：
-     1) 按了按钮半天没动静 —— 手指一落就在本地登记一条「排队中」，不等 /api/live 回来。
-        旧版只在服务端一条 ops 都没有时才显示本地占位，别处有任务在跑就完全不反馈。
-     2) 同一条任务显示成两行 —— 本地占位与服务端条目按标题匹配去重（match 由调用方给），
-        服务端条目一露面（例：合规预检 · 第12章）本地这条立刻让位，不重复也不闪断。
-     3) 进度与「已用时」卡住 —— 600ms 本地节拍器只重绘数字和进度条，取数仍走 /api/live，
-        两次轮询之间用时照常往上走；进度只进不退。
-     4) 跑完了还挂着一个 100% 的条 —— 全部结束显示「已完成」，4 秒后自动收起；
-        失败的条目不会被收走：标红留在那里，等用户点「知道了」。
-     5) 多条任务时标题来回跳 —— 固定排序（失败 → 进行中 → 完成），组内按开始时间。 */
-  const OPS_OPEN_KEY = 'mz_ops_open';
-  const OPS_TICK_MS = 600;
+     这里只留「怎么算出一条状态」：本地占位 + 服务端 ops 合并、按标题去重、进度只进不退。
+     取数仍走 /api/live，两次轮询之间由 paintLiveSoft 把数字往前推。 */
   const OPS_GRACE = 5000;        /* 请求已返回、服务端条目还没露面的宽限（要大于一次轮询间隔） */
   const OPS_STALE = 120000;      /* 本地占位最多挂 2 分钟，免得网络卡死时一直转 */
-  const OPS_LINGER = 4200;       /* 全部跑完后自动收起的等待 */
 
   let localOps = [];             /* 本地占位：按钮已按下、服务端 ops 还没露面 */
   let localSeq = 1;
   let liveAt = 0;                /* 最近一次 /api/live 成功的时刻（用来推算用时） */
   let pctMemo = {};              /* key -> {v, started}：显示过的最大百分比，只进不退 */
-  let acked = {};                /* 用户点过「知道了」的条目：key -> 时间戳 */
-  let hideAt = 0;                /* 全部跑完后的自动收起时刻 */
-  let tickTimer = null;
-  let dockOpen = false;
-  let failSig = '';
-  try { dockOpen = localStorage.getItem(OPS_OPEN_KEY) === '1'; } catch (e) { /* 忽略 */ }
-
-  function opsTickOn() {
-    if (tickTimer) return;
-    tickTimer = setInterval(function () { paintOps(); }, OPS_TICK_MS);
-  }
-  function opsTickOff() {
-    if (!tickTimer) return;
-    clearInterval(tickTimer); tickTimer = null;
-  }
-  function setDockOpen(on) {
-    dockOpen = !!on;
-    try { localStorage.setItem(OPS_OPEN_KEY, dockOpen ? '1' : '0'); } catch (e) { /* 忽略 */ }
-  }
   /* 登记一条本地占位：label 是给人看的，match 是拿服务端标题去重用的正则源码 */
   function pending(label, opts) {
     opts = opts || {};
@@ -1509,30 +1588,19 @@ window.MZApp = (function () {
     const t = { id: localSeq++, label: label || '正在跑', re: re, t0: Date.now(), doneAt: 0, pct: 3 };
     localOps.push(t);
     if (localOps.length > 8) localOps = localOps.slice(-8);
-    hideAt = 0;
-    paintOps(); opsTickOn();
+    paintBooksLive();
     return t;
   }
   function pendingDone(t) {
     if (!t) return;
     t.doneAt = Date.now();       /* 不立刻删：服务端条目可能还在路上，先走宽限期 */
-    paintOps();
+    paintBooksLive();
   }
   /* 请求失败时把本地占位撒掉：别留一条一直在转的假进度骗人 */
   function pendingDrop(t) {
     if (!t) return;
     localOps = localOps.filter(function (x) { return x !== t; });
-    paintOps();
-  }
-  function ackOp(key) {
-    acked[key] = Date.now();
-    const ks = Object.keys(acked);
-    if (ks.length > 80) {
-      ks.sort(function (a, b) { return acked[a] - acked[b]; })
-        .slice(0, ks.length - 60).forEach(function (k) { delete acked[k]; });
-    }
-    hideAt = 0;
-    paintOps();
+    paintBooksLive();
   }
   /* 服务端给的是「快照那一刻」的百分比 + 爬升速度（%/秒）。
      两次轮询之间照这个速度自己往前推：数字一直在动，又不会越过 99.5%
@@ -1565,7 +1633,6 @@ window.MZApp = (function () {
 
     Object.keys(live.ops || {}).forEach(function (k) {
       const o = live.ops[k] || {};
-      if (acked[k]) return;
       const started = Number(o.started_at) || 0;
       out.push({
         key: k, title: o.title || k, phase: o.phase || '', note: o.note || '',
@@ -1583,7 +1650,6 @@ window.MZApp = (function () {
     const liveBooks = live.books || [];
     (state.liveJobs || live.jobs || []).forEach(function (j) {
       const k = 'job:' + j.id;
-      if (acked[k]) return;
       const b = liveBooks.filter(function (x) { return Number(x.id) === Number(j.novel_id); })[0] || null;
       const where = (b && Number(b.current_idx)) ? ('第 ' + b.current_idx + ' 章') : '';
       const what = (b && b.phase) ? b.phase : (j.message || '');
@@ -1643,124 +1709,7 @@ window.MZApp = (function () {
     });
     return out;
   }
-  function opsRowNode(o) {
-    const cls = o.finished ? (o.ok ? 'ok' : 'bad') : 'run';
-    const stepTxt = (o.steps && o.steps.length)
-      ? ('第 ' + Math.min((o.step || 0) + 1, o.steps.length) + '/' + o.steps.length + ' 步') : '';
-    const bits = [o.phase, stepTxt].filter(Boolean).join(' · ');
-    const row = h('div.od-row.' + cls);
-    row.appendChild(h('div.od-r1', null,
-      h('span.od-ic', { text: o.finished ? (o.ok ? '\u2713' : '!') : '\u25cf' }),
-      h('b.od-t', { text: o.title || '' }),
-      h('span.sp'),
-      h('span.dim.small', { text: o.elapsed ? fmtDur(o.elapsed) : '' })));
-    row.appendChild(barOf(o.pct || 0, cls === 'bad' ? 'bad' : ''));
-    if (bits || o.note || o.error) {
-      row.appendChild(h('div.od-s', { text: [bits || '正在准备\u2026', o.note, o.error ? String(o.error).slice(0, 90) : ''].filter(Boolean).join(' · ') }));
-    }
-    if (o.steps && o.steps.length) row.appendChild(stepsNode(o.steps, o.step, ''));
-    if (o.finished && !o.ok) {
-      const b = h('button.btn.sm', { type: 'button', text: '知道了' });
-      b.addEventListener('click', function () { haptic('light'); ackOp(o.key); });
-      row.appendChild(h('div.btn-row', null, b));
-    }
-    return row;
-  }
-  function paintOps() {
-    const dock = $('#opsDock');
-    if (!dock) return;
-    const list = opsAll();
-    const body = $('#odBody');
-    const t = $('#odTitle'), sub = $('#odSub'), pct = $('#odPct'), fill = $('#odFill');
-
-    if (!list.length) {
-      opsTickOff(); hideAt = 0; failSig = '';
-      dock.hidden = true; dock.classList.remove('on');
-      if (body) { body.hidden = true; clear(body); }
-      if (t) t.textContent = '';
-      if (sub) sub.textContent = '';
-      if (pct) pct.textContent = '0%';
-      if (fill) fill.style.width = '0%';
-      return;
-    }
-    opsTickOn();
-
-    const running = list.filter(function (o) { return !o.finished; });
-    const failed = list.filter(function (o) { return o.finished && !o.ok; });
-
-    /* 全部结束：成功的那批显示一会儿自动收起，失败的那批留着等用户确认 */
-    if (!running.length && !failed.length) {
-      if (!hideAt) hideAt = Date.now() + OPS_LINGER;
-      if (Date.now() >= hideAt) {
-        list.forEach(function (o) { acked[o.key] = Date.now(); });
-        opsTickOff(); hideAt = 0;
-        dock.hidden = true; dock.classList.remove('on');
-        if (body) { body.hidden = true; clear(body); }
-        return;
-      }
-    } else {
-      hideAt = 0;
-    }
-
-    /* 冒出新的失败：自动展开一次，让用户当场看到原因 */
-    const fsig = failed.map(function (o) { return o.key; }).join(',');
-    if (fsig && fsig !== failSig) { failSig = fsig; dockOpen = true; }
-    if (!fsig) failSig = '';
-
-    const head = running[0] || failed[0] || list[0];
-    const multi = running.length > 1;
-    dock.hidden = false;
-    if (t) {
-      t.textContent = multi ? ('正在跑 ' + running.length + ' 项')
-        : (running.length ? (head.title || '正在跑')
-          : (failed.length ? ('有 ' + failed.length + ' 项失败') : '已完成'));
-    }
-    if (sub) {
-      sub.textContent = running.length
-        ? (multi ? (head.title + ' · ' + (head.phase || '进行中')) : (head.phase || head.note || '正在准备\u2026'))
-        : (failed.length ? '点开看原因' : (head.phase || '全部完成'));
-    }
-    if (pct) pct.textContent = Math.round(head.pct || 0) + '%';
-    if (fill) fill.style.width = Math.max(2, Math.min(100, head.pct || 0)) + '%';
-
-    dock.classList.toggle('on', dockOpen);
-    if (body) {
-      if (dockOpen) {
-        const keepTop = body.scrollTop;
-        clear(body);
-        list.forEach(function (o) { body.appendChild(opsRowNode(o)); });
-        body.hidden = false;
-        body.scrollTop = keepTop;
-      } else {
-        body.hidden = true;
-      }
-    }
-  }
-
   /* ============================== 活数据 ============================== */
-  function paintDock() {
-    const dock = $('#islandDock');
-    if (!dock) return;
-    const live = state.live || {};
-    /* 灵动岛只回答「书写得怎么样了」。单纯的章节检查 / 评分不该在这里冒充写作进度，
-       那些长操作交给底部那条全局任务条（#opsDock）显示，两条各有各的分工。 */
-    /* 只有真的在跑才显示。以前只要 live.books 非空就显示，
-       而服务端跑完后不会清 _books，结果顶部活灵岛一直挂着
-       「补更《…》3 章 · 完成 · 0%」这种自相矛盾的残留。 */
-    const activeJobs = (state.liveJobs || []).filter(function (j) {
-      return j.status === 'running' || j.status === 'queued';
-    }).length;
-    const writing = !!(live.running || activeJobs);
-    if (!writing) { dock.hidden = true; return; }
-    const pct = creepPct(live.pct, live.rate, !!live.running);
-
-    const t = $('#idTitle'), sb = $('#idSub'), pc = $('#idPct'), fl = $('#idFill');
-    if (t) t.textContent = live.job_title || '正在跑';
-    if (sb) sb.textContent = phaseLine(live);
-    if (pc) pc.textContent = Math.round(pct) + '%';
-    if (fl) fl.style.width = pct + '%';
-    dock.hidden = false;
-  }
   /* 两次 /api/live 之间把进度往前推：只改样式和文字，不重建 DOM，
      所以数字一直在动，又不会闪、不会跳、不会把进度环动画重播。 */
   function paintLiveSoft() {
@@ -1801,9 +1750,39 @@ window.MZApp = (function () {
         if (el.textContent !== t) el.textContent = t;
       }
     }
-    const fl = $('#idFill'), pc = $('#idPct');
-    if (fl) fl.style.width = pct + '%';
-    if (pc) pc.textContent = Math.round(pct) + '%';
+    /* 书架页那张紧凑卡（.lv）：两次轮询之间也把数字往前推，别僵住 */
+    const lv = document.querySelector('.books-live .lv');
+    if (lv) {
+      const pc = lv.querySelector('.lv-pct > span');
+      if (pc) pc.textContent = Math.round(pct) + '%';
+      const pf = lv.querySelector('.lv-prog .bar-fill');
+      if (pf) pf.style.width = pct + '%';
+      const tm = lv.querySelector('.lv-time');
+      if (tm && live.elapsed) {
+        const sec = Math.round((live.elapsed || 0) + (liveAt ? (Date.now() - liveAt) / 1000 : 0));
+        const t = '已用时 ' + fmtDur(sec);
+        if (tm.textContent !== t) tm.textContent = t;
+      }
+      const bk = lv.querySelectorAll('.lv-bks .lv-bk');
+      (live.books || []).forEach(function (b, i) {
+        const el = bk[i];
+        if (!el) return;
+        const f = el.querySelector('.bar-fill');
+        if (f) f.style.width = creepPct(b.pct, b.rate, (b.done || 0) < (b.need || 0)) + '%';
+      });
+      /* 每项任务的百分比 / 进度条：按 data-k 对号入座，不靠下标猜 */
+      const byKey = {};
+      opsAll().forEach(function (o) { byKey[o.key] = o; });
+      const rows = lv.querySelectorAll('.bl-row');
+      for (let i = 0; i < rows.length; i++) {
+        const o = byKey[rows[i].getAttribute('data-k')];
+        if (!o) continue;
+        const p = rows[i].querySelector('.bl-p');
+        if (p) p.textContent = o.pct ? (Math.round(o.pct) + '%') : '';
+        const f = rows[i].querySelector('.bar-fill');
+        if (f) f.style.width = Math.max(0, Math.min(100, o.pct || 0)) + '%';
+      }
+    }
   }
 
   function paintBadge() {
@@ -1832,11 +1811,11 @@ window.MZApp = (function () {
       state.live = (d && d.live) ? d.live : (d || {});
       state.liveJobs = (d && d.jobs) || [];
       liveAt = Date.now();   /* 本地按时长推算「已用时」的基准点 */
-      paintDock(); paintBadge(); paintOps();
+      paintBadge(); paintBooksLive();
       return state.live;
     } catch (e) {
-      /* 断网也要重绘：本地占位还在走时，任务条不该跟着僵住 */
-      paintDock(); paintOps(); return null;
+      /* 断网也要重绘：本地占位还在走时，书架那块实时状态不该跟着僵住 */
+      paintBooksLive(); return null;
     }
 
   }
@@ -2320,12 +2299,12 @@ window.MZApp = (function () {
     return sysLight;
   }
   /* 读用户的选择；system/light/dark。
-     没存过偏好时默认 'dark' —— 品牌底色是深墨黑，冷启动第一眼不该是纸白。
-     想跟系统走的用户，自己到「我的 → 外观」里选「跟随系统」。 */
+     没存过偏好时默认 'system'：跟着手机系统的深浅走。
+     想钉死某一档的用户，自己到「我的 → 外观」里选浅色 / 深色。 */
   function themePref() {
     let t = null;
     try { t = localStorage.getItem(THEME_KEY); } catch (e) { /* 忽略 */ }
-    return THEMES.indexOf(t) >= 0 ? t : 'dark';
+    return THEMES.indexOf(t) >= 0 ? t : 'system';
   }
   /* 眼下到底是浅色还是深色（把跟随系统算进去） */
   function isLightTheme() {
@@ -2350,7 +2329,7 @@ window.MZApp = (function () {
     if (themePref() === 'system') paintTheme();
   }
   function applyTheme(t) {
-    const pref = THEMES.indexOf(t) >= 0 ? t : 'dark';
+    const pref = THEMES.indexOf(t) >= 0 ? t : 'system';
     try { localStorage.setItem(THEME_KEY, pref); } catch (e) { /* 忽略 */ }
     return paintTheme();
   }
@@ -2457,16 +2436,6 @@ window.MZApp = (function () {
     $$('.tab').forEach(function (b) { b.addEventListener('click', function () { switchTab(b.dataset.tab); }); });
     const nb = $('#navBack');
     if (nb) nb.addEventListener('click', function () { haptic('light'); pop(); });
-    const dock = $('#islandDock');
-    if (dock) dock.addEventListener('click', function () { haptic('light'); switchTab('jobs'); });
-    const odTop = $('#odTop');
-    if (odTop) {
-      odTop.addEventListener('click', function () {
-        haptic('light');
-        setDockOpen(!dockOpen);   /* 折叠偏好记到本地：重绘不会又把抽屉弹回去 */
-        paintOps();
-      });
-    }
     applyTheme(getTheme());
     watchTheme();
 
@@ -2552,7 +2521,8 @@ window.MZApp = (function () {
   return {
     state: state, screens: screens, MZUI: MZUI,
     render: render, push: push, pop: pop, switchTab: switchTab, go: go,
-    loadHero: loadHero, ensureHero: ensureHero, refreshAll: refreshAll, refreshLive: refreshLive,
+    loadHero: loadHero, ensureHero: ensureHero, ensureHeroSoft: ensureHeroSoft,
+    cloudDownBox: cloudDownBox, refreshAll: refreshAll, refreshLive: refreshLive,
     loadProfile: loadProfile,
     findNovel: findNovel, openBook: openBook, openTokenDialog: openTokenDialog,
     applyTheme: applyTheme, getTheme: getTheme, themePref: themePref, isLightTheme: isLightTheme, rereadTheme: rereadTheme,
@@ -2562,10 +2532,9 @@ window.MZApp = (function () {
     span: span, txt: txt, busySheet: busySheet, startJob: startJob, newNovel: newNovel,
     newNovelMenu: newNovelMenu, importNovel: importNovel, removeNovels: removeNovels, exportNovel: exportNovel,
     runDaily: runDaily, stopAll: stopAll, stagger: stagger, topline: topline,
-    askUpdate: askUpdate, askRewrite: askRewrite, bookHitReview: bookHitReview,
+    askUpdate: askUpdate, askRewrite: askRewrite,
     liveBusy: liveBusy, phaseLine: phaseLine, emptyBox: emptyBox, loadingBox: loadingBox, errBox: errBox,
-    pending: pending, pendingDone: pendingDone, pendingDrop: pendingDrop, paintOps: paintOps, opsAll: opsAll,
-    hitFixInstruction: hitFixInstruction,
+    pending: pending, pendingDone: pendingDone, pendingDrop: pendingDrop, opsAll: opsAll, paintBooksLive: paintBooksLive,
     chapTitle: chapTitle, setPinned: setPinned,
     chapterPrice: chapterPrice, loadPricing: loadPricing,
     _btn: function (label, tone, onTap, size) {
