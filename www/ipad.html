@@ -16,11 +16,10 @@
 <script>
 (function () {
   try {
-    // 默认深墨黑（品牌底色）。只有用户明确选了「浅色」、或选了「跟随系统」且系统是浅色，
-    // 才走纸白那一套；没存过偏好时不再跟随系统 —— 冷启动第一眼必须是品牌色。
-    var t = localStorage.getItem('mz_theme');
-    var light = (t === 'light') || (t === 'system' && window.matchMedia
-      && window.matchMedia('(prefers-color-scheme: light)').matches);
+    // 默认跟随系统：没存过偏好就跟手机的深浅走，存过就按存的来。
+    var t = localStorage.getItem('mz_theme') || 'system';
+    var light = (t === 'light') || (t === 'system' && !!(window.matchMedia
+      && window.matchMedia('(prefers-color-scheme: light)').matches));
     if (light) document.documentElement.classList.add('light');
     var m = document.querySelector('meta[name=theme-color]');
     if (m) m.setAttribute('content', light ? '#f2f1ee' : '#0c0d0f');
@@ -95,9 +94,9 @@
 <link rel="apple-touch-startup-image" href="splash/1125x2436.png" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3)" />
 <link rel="apple-touch-startup-image" href="splash/828x1792.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2)" />
 <link rel="apple-touch-startup-image" href="splash/750x1334.png" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2)" />
-<link rel="stylesheet" href="style.css?v=20261009b" />
-<link rel="stylesheet" href="fx.css?v=20261009b" />
-<link rel="stylesheet" href="ipad.css?v=20261009b" />
+<link rel="stylesheet" href="style.css?v=20261013d" />
+<link rel="stylesheet" href="fx.css?v=20261013d" />
+<link rel="stylesheet" href="ipad.css?v=20261013d" />
 </head>
 <body>
 <div class="topline" id="topline"></div>
@@ -139,14 +138,8 @@
 
 <div class="app" id="app" hidden>
   <header class="navbar" id="navbar">
-    <!-- 灵动岛停靠条：有任务在跑时挂在顶上，点它去任务页 -->
-    <button type="button" class="islanddock" id="islandDock" hidden>
-      <span class="id-dot"></span>
-      <span class="id-title" id="idTitle"></span>
-      <span class="id-sub" id="idSub"></span>
-      <span class="id-pct" id="idPct"></span>
-      <span class="id-track"><i id="idFill"></i></span>
-    </button>
+    <!-- 实时状态不再挂在顶上飘着（灵动岛停靠条已下线）：它现在是书架页顶部的
+         「实时状态」那一块，滚到哪儿都跟正文一起走，不压在内容上。 -->
     <div class="nb-row">
       <button class="nb-back" id="navBack" hidden aria-label="返回"><span>&#8249;</span></button>
       <div class="nb-title" id="navInline">书架</div>
@@ -165,20 +158,6 @@
     <button class="tab" data-tab="jobs"><span class="tb-ico" data-ico="jobs"></span><b>任务</b><span class="tbadge" id="badgeJobs" hidden></span></button>
     <button class="tab" data-tab="me"><span class="tb-ico" data-ico="me"></span><b>我的</b></button>
   </nav>
-</div>
-
-<!-- 全局任务条：所有长操作（三模型评分 / 按建议重写 / 章节检查 / 续写补更）
-     的实时进度都画在这里。它是 body 级的 fixed 元素，切页、关写作台、重开 App 都不丢。 -->
-<div class="opsdock" id="opsDock" hidden>
-  <button class="od-top" type="button" id="odTop">
-    <span class="live-dot"></span>
-    <span class="od-title" id="odTitle">正在跑</span>
-    <span class="od-sub" id="odSub"></span>
-    <span class="od-pct" id="odPct">0%</span>
-    <span class="od-chev">&#8964;</span>
-  </button>
-  <div class="od-track"><i id="odFill"></i></div>
-  <div class="od-body" id="odBody" hidden></div>
 </div>
 
 <div class="mask hidden" id="maskSheet"><div class="sheet" id="sheetBox"></div></div>
@@ -207,13 +186,14 @@
 <!-- iPad 装机版：接口走云端入口（api.js 里那三个），不连本机服务。
      MZ_NO_401_REDIRECT=1：401 时交给界面弹登录卡，别跳 index.html（跳了会把刚填的表单冲掉）。 -->
 <script>window.MZ_NO_401_REDIRECT = 1;</script>
-<script src="api.js?v=20261009b"></script>
-<script src="app.js?v=20261009b"></script>
-<script src="pages.js?v=20261009b"></script>
-<script src="editor.js?v=20261009b"></script>
-<script src="book.js?v=20261009b"></script>
-<script src="reader.js?v=20261009b"></script>
-<script src="ipad.js?v=20261009b"></script>
+<script src="api.js?v=20261013d"></script>
+<script src="app.js?v=20261013d"></script>
+<script src="pages.js?v=20261013d"></script>
+<script src="editor.js?v=20261013d"></script>
+<script src="book.js?v=20261013d"></script>
+<script src="reader.js?v=20261013d"></script>
+<script src="ipad.js?v=20261013d"></script>
+<script src="style.js?v=20261013d"></script>
 
 <!-- 接上触控板 / 鼠标时：把滚轮接到横滑条上（选书条 / 筛选条都算）。手指左右滑本来就能划。 -->
 <script>
