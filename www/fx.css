@@ -272,18 +272,8 @@ html.light .ripple { background: radial-gradient(circle, rgba(20,40,70,.2), rgba
 .tab.on b { letter-spacing: .2px; }
 .tab .tbadge { animation: mzPop .3s var(--spring) both; }
 
-/* ============================== 灵动岛停靠条 ============================== */
-.islanddock { animation: mzSlideDown .5s var(--spring) both; }
-.islanddock .id-dot { position: relative; background: var(--accent); }
-.islanddock .id-dot::after {
-  content: ''; position: absolute; inset: 0; border-radius: 999px;
-  background: var(--accent); animation: mzPulse 1.5s ease-out infinite;
-}
-.islanddock .id-track i {
-  background: linear-gradient(90deg, var(--accent2), var(--accent));
-  transition: width .6s var(--spring);
-  box-shadow: 0 0 12px -1px var(--accent);
-}
+/* 灵动岛停靠条（.islanddock）2026-10-13 下线：动效一并不用留（keyframes 还被
+   .live-dot 用着，留着）。书架页的实时状态块沿用 .running-card 的流动光带。 */
 
 /* ============================== 实时进度：正在跑什么 ============================== */
 /* 跑动中的卡片：顶部一条流动光带 */
@@ -353,6 +343,6 @@ html.light .ripple { background: radial-gradient(circle, rgba(20,40,70,.2), rgba
     transition-duration: .001ms !important;
     scroll-behavior: auto !important;
   }
-  .rise, .ev, .toast, .screen-fade, .screen-push, .screen-back, .islanddock { animation: none !important; }
+  .rise, .ev, .toast, .screen-fade, .screen-push, .screen-back { animation: none !important; }
   .aurora { animation: none !important; }
 }
